@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package auth.mfa;
+
+option go_package = "github.com/auth-platform/proto/mfa_service";
+
+import "common.proto";
+
+service MFAService {
+  // TOTP
+  rpc EnrollTOTP(EnrollTOTPRequest) returns (EnrollTOTPResponse);
+  rpc VerifyTOTP(VerifyTOTPRequest) returns (VerifyResponse);
+  rpc DisableTOTP(DisableTOTPRequest) returns (DisableResponse);
+  
+  // WebAuthn
+  rpc BeginWebAuthnRegistration(WebAuthnRegisterRequest) returns (WebAuthnChallengeResponse);
+  rpc CompleteWebAuthnRegistration(WebAuthnRegisterComplete) returns (WebAuthnCredentialResponse);
+  rpc BeginWebAuthnAuthentication(WebAuthnAuthRequest) returns (WebAuthnChallengeResponse);
+  rpc CompleteWebAuthnAuthentication(WebAuthnAuthComplete) returns (VerifyResponse);
+  
+  // Push
+  rpc SendPushChallenge(PushChallengeRequest) returns (PushChallengeResponse);
+  rpc CheckPushApproval(CheckApprovalRequest) returns (VerifyResponse);
+  
+  // Device
+  rpc RegisterDevice(RegisterDeviceRequest) returns (DeviceResponse);
+  rpc CheckDeviceFingerprint(FingerprintRequest) returns (FingerprintResponse);
+  
+  // Backup Codes
+  rpc GenerateBackupCodes(GenerateCodesRequest) returns (BackupCodesResponse);
+  rpc VerifyBackupCode(VerifyBackupRequest) returns (VerifyResponse);
+  
+  // MFA Status
+  rpc CheckMFARequired(CheckMFARequest) returns (CheckMFAResponse);
+}
+
+// TOTP Messages
+message EnrollTOTPRequest {
+  string user_id = 1;
+  string issuer = 2;
+}
+
+message EnrollTOTPResponse {
+  string secret = 1;
+  string provisioning_uri = 2;
+  string qr_code_base64 = 3;
+  repeated string backup_codes = 4;
+}
+
+message VerifyTOTPRequest {
+  string user_id = 1;
+  string code = 2;
+}
+
+message VerifyResponse {
+  bool valid = 1;
+  string error_code = 2;
+  string error_message = 3;
+}
+
+message DisableTOTPRequest {
+  string user_id = 1;
+}
+
+message DisableResponse {
+  bool success = 1;
+}
+
+// WebAuthn Messages
+message WebAuthnRegisterRequest {
+  string user_id = 1;
+  string user_name = 2;
+  string display_name = 3;
+}
+
+message WebAuthnChallengeResponse {
+  bytes challenge = 1;
+  string rp_id = 2;
+  string rp_name = 3;
+  repeated WebAuthnCredentialDescriptor exclude_credentials = 4;
+  string user_verification = 5;
+  int64 timeout_ms = 6;
+  bytes user_id = 7;
+}
+
+message WebAuthnCredentialDescriptor {
+  bytes id = 1;
+  string type = 2;
+  repeated string transports = 3;
+}
+
+message WebAuthnRegisterComplete {
+  string user_id = 1;
+  bytes credential_id = 2;
+  bytes attestation_object = 3;
+  bytes client_data_json = 4;
+  string device_name = 5;
+}
+
+message WebAuthnCredentialResponse {
+  string credential_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+message WebAuthnAuthRequest {
+  string user_id = 1;
+}
+
+message WebAuthnAuthComplete {
+  string user_id = 1;
+  bytes credential_id = 2;
+  bytes authenticator_data = 3;
+  bytes client_data_json = 4;
+  bytes signature = 5;
+}
+
+// Push Messages
+message PushChallengeRequest {
+  string user_id = 1;
+  string device_id = 2;
+  string message = 3;
+  int32 timeout_seconds = 4;
+}
+
+message PushChallengeResponse {
+  string challenge_id = 1;
+  bool sent = 2;
+  string error_message = 3;
+}
+
+message CheckApprovalRequest {
+  string challenge_id = 1;
+}
+
+// Device Messages
+message RegisterDeviceRequest {
+  string user_id = 1;
+  string fingerprint = 2;
+  string device_type = 3;
+  string os = 4;
+  string browser = 5;
+  map<string, string> metadata = 6;
+}
+
+message DeviceResponse {
+  string device_id = 1;
+  string trust_level = 2;
+  bool is_new = 3;
+}
+
+message FingerprintRequest {
+  string user_id = 1;
+  string fingerprint = 2;
+}
+
+message FingerprintResponse {
+  bool known_device = 1;
+  bool significant_change = 2;
+  string device_id = 3;
+  string trust_level = 4;
+}
+
+// Backup Codes Messages
+message GenerateCodesRequest {
+  string user_id = 1;
+  int32 count = 2;
+}
+
+message BackupCodesResponse {
+  repeated string codes = 1;
+}
+
+message VerifyBackupRequest {
+  string user_id = 1;
+  string code = 2;
+}
+
+// MFA Check Messages
+message CheckMFARequest {
+  string user_id = 1;
+  string session_id = 2;
+}
+
+message CheckMFAResponse {
+  bool required = 1;
+  repeated string available_methods = 2;
+  bool totp_enrolled = 3;
+  bool webauthn_enrolled = 4;
+  bool push_enrolled = 5;
+}

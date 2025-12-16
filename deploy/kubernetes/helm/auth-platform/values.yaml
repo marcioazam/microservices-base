@@ -1,0 +1,303 @@
+# Auth Platform Helm Values
+# Production-ready configuration
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+  
+  # SPIFFE/SPIRE configuration
+  spiffe:
+    trustDomain: "auth-platform.local"
+    socketPath: "/spire-agent-socket/spire-agent.sock"
+
+  # Observability
+  observability:
+    tracing:
+      enabled: true
+      endpoint: "otel-collector:4317"
+    metrics:
+      enabled: true
+
+# ============================================
+# Auth Edge Service
+# ============================================
+authEdgeService:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: auth-platform/auth-edge-service
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    grpcPort: 8080
+    metricsPort: 9090
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: auth-edge-service
+            topologyKey: kubernetes.io/hostname
+
+  config:
+    jwkCacheTtlSeconds: 3600
+    circuitBreaker:
+      failureThreshold: 5
+      successThreshold: 3
+      timeoutSeconds: 30
+
+# ============================================
+# Token Service
+# ============================================
+tokenService:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: auth-platform/token-service
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    grpcPort: 8081
+    metricsPort: 9091
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 70
+  
+  config:
+    accessTokenTtlSeconds: 900      # 15 minutes
+    refreshTokenTtlDays: 7
+    signingAlgorithm: "ES256"
+    kms:
+      provider: "aws"               # aws, gcp, azure, local
+      keyId: ""
+
+# ============================================
+# Session/Identity Core
+# ============================================
+sessionIdentityCore:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: auth-platform/session-identity-core
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    httpPort: 4000
+    grpcPort: 8082
+    metricsPort: 9092
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  
+  config:
+    sessionTtlHours: 24
+    riskScoreThreshold: 0.7
+
+# ============================================
+# IAM/Policy Service
+# ============================================
+iamPolicyService:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: auth-platform/iam-policy-service
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    grpcPort: 8083
+    metricsPort: 9093
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  
+  config:
+    policyReloadIntervalSeconds: 60
+    decisionCacheTtlSeconds: 300
+
+# ============================================
+# MFA Service
+# ============================================
+mfaService:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: auth-platform/mfa-service
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    grpcPort: 8084
+    metricsPort: 9094
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  
+  config:
+    totpWindowSize: 1
+    webauthnTimeout: 60000
+    pushTimeout: 60
+
+# ============================================
+# Infrastructure Dependencies
+# ============================================
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: ""
+    database: auth_platform
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+redis:
+  enabled: true
+  architecture: replication
+  auth:
+    enabled: true
+    password: ""
+  master:
+    persistence:
+      size: 10Gi
+  replica:
+    replicaCount: 2
+    persistence:
+      size: 10Gi
+
+kafka:
+  enabled: true
+  replicaCount: 3
+  persistence:
+    size: 50Gi
+
+# ============================================
+# Ingress Configuration
+# ============================================
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: auth.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: auth-platform-tls
+      hosts:
+        - auth.example.com
+
+# ============================================
+# Service Mesh / SPIFFE
+# ============================================
+spire:
+  enabled: true
+  server:
+    trustDomain: "auth-platform.local"
+  agent:
+    socketPath: "/spire-agent-socket/spire-agent.sock"
+
+# ============================================
+# Monitoring
+# ============================================
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
+
+podMonitor:
+  enabled: false

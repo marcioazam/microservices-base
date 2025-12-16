@@ -1,0 +1,94 @@
+{{- if .Values.certManager.enabled }}
+# cert-manager resources for Linkerd
+# Requirements: 3.4 - Automatic certificate rotation
+
+---
+# Self-signed ClusterIssuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.certManager.clusterIssuer.name }}
+  labels:
+    app.kubernetes.io/name: linkerd
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  selfSigned: {}
+
+---
+# Trust Anchor Certificate (Root CA) - 10 years validity
+# Requirements: 3.4
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: linkerd-trust-anchor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: linkerd
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  isCA: true
+  commonName: {{ .Values.trustAnchor.commonName }}
+  secretName: linkerd-trust-anchor
+  duration: {{ .Values.trustAnchor.duration }}
+  renewBefore: {{ .Values.trustAnchor.renewBefore }}
+  subject:
+    organizations:
+      {{- range .Values.trustAnchor.subject.organizations }}
+      - {{ . }}
+      {{- end }}
+  privateKey:
+    algorithm: {{ .Values.trustAnchor.privateKey.algorithm }}
+    size: {{ .Values.trustAnchor.privateKey.size }}
+  issuerRef:
+    name: {{ .Values.certManager.clusterIssuer.name }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+---
+# Issuer using Trust Anchor
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: linkerd-trust-anchor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: linkerd
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  ca:
+    secretName: linkerd-trust-anchor
+
+---
+# Identity Issuer Certificate - 48 hours validity
+# Requirements: 3.4 - cert-manager automatic rotation
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: linkerd-identity-issuer
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: linkerd
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  isCA: true
+  commonName: {{ .Values.identityIssuer.commonName }}
+  secretName: linkerd-identity-issuer
+  duration: {{ .Values.identityIssuer.duration }}
+  renewBefore: {{ .Values.identityIssuer.renewBefore }}
+  subject:
+    organizations:
+      {{- range .Values.identityIssuer.subject.organizations }}
+      - {{ . }}
+      {{- end }}
+  privateKey:
+    algorithm: {{ .Values.identityIssuer.privateKey.algorithm }}
+    size: {{ .Values.identityIssuer.privateKey.size }}
+  usages:
+    - cert sign
+    - crl sign
+    - server auth
+    - client auth
+  issuerRef:
+    name: linkerd-trust-anchor
+    kind: Issuer
+{{- end }}

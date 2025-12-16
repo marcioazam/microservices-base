@@ -1,0 +1,104 @@
+{{- if .Values.iamPolicyService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-iam-policy
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iam-policy-service
+  annotations:
+    kubernetes.io/change-cause: {{ .Values.iamPolicyService.image.tag | quote }}
+spec:
+  {{- if not .Values.iamPolicyService.autoscaling.enabled }}
+  replicas: {{ .Values.iamPolicyService.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: iam-policy-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "auth-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: iam-policy-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.iamPolicyService.service.metricsPort }}"
+        # Vault Agent Injector - Requirements 1.1
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "iam-policy-service"
+        vault.hashicorp.com/agent-inject-secret-config.env: "secret/data/auth-platform/config/iam-policy/default"
+        # Linkerd injection - Requirements 3.2
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-cpu-request: "100m"
+        config.linkerd.io/proxy-memory-request: "20Mi"
+    spec:
+      serviceAccountName: {{ include "auth-platform.serviceAccountName" . }}-iam-policy
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: iam-policy-service
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.iamPolicyService.image.repository }}:{{ .Values.iamPolicyService.image.tag }}"
+          imagePullPolicy: {{ .Values.iamPolicyService.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.iamPolicyService.service.grpcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.iamPolicyService.service.metricsPort }}
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "iam-policy-service"
+            - name: GRPC_PORT
+              value: "{{ .Values.iamPolicyService.service.grpcPort }}"
+            - name: METRICS_PORT
+              value: "{{ .Values.iamPolicyService.service.metricsPort }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.global.observability.tracing.endpoint }}"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: policies
+              mountPath: /policies
+              readOnly: true
+          livenessProbe:
+            grpc:
+              port: {{ .Values.iamPolicyService.service.grpcPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: {{ .Values.iamPolicyService.service.grpcPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.iamPolicyService.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: policies
+          configMap:
+            name: {{ include "auth-platform.fullname" . }}-iam-policies
+      {{- with .Values.iamPolicyService.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.iamPolicyService.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

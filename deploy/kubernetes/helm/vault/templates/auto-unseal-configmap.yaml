@@ -1,0 +1,33 @@
+{{- if and .Values.vault.enabled .Values.autoUnseal.enabled }}
+# ConfigMap for auto-unseal configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vault-config.fullname" . }}-auto-unseal
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+data:
+  {{- if eq .Values.autoUnseal.provider "awskms" }}
+  vault-config.hcl: |
+    seal "awskms" {
+      region     = "{{ .Values.autoUnseal.awskms.region }}"
+      kms_key_id = "{{ .Values.autoUnseal.awskms.kmsKeyId }}"
+    }
+  {{- else if eq .Values.autoUnseal.provider "gcpckms" }}
+  vault-config.hcl: |
+    seal "gcpckms" {
+      project     = "{{ .Values.autoUnseal.gcpckms.project }}"
+      region      = "{{ .Values.autoUnseal.gcpckms.region }}"
+      key_ring    = "{{ .Values.autoUnseal.gcpckms.keyRing }}"
+      crypto_key  = "{{ .Values.autoUnseal.gcpckms.cryptoKey }}"
+    }
+  {{- else if eq .Values.autoUnseal.provider "azurekeyvault" }}
+  vault-config.hcl: |
+    seal "azurekeyvault" {
+      tenant_id      = "{{ .Values.autoUnseal.azurekeyvault.tenantId }}"
+      vault_name     = "{{ .Values.autoUnseal.azurekeyvault.vaultName }}"
+      key_name       = "{{ .Values.autoUnseal.azurekeyvault.keyName }}"
+    }
+  {{- end }}
+{{- end }}

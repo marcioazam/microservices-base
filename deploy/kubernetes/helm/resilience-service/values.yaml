@@ -1,0 +1,113 @@
+# Default values for resilience-service
+
+replicaCount: 2
+
+image:
+  repository: auth-platform/resilience-service
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  linkerd.io/inject: enabled
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 50056
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - resilience-service
+          topologyKey: kubernetes.io/hostname
+
+config:
+  logLevel: info
+  redis:
+    url: redis://redis:6379
+    db: 0
+  otel:
+    endpoint: http://otel-collector:4317
+  policy:
+    configPath: /etc/resilience/policies.yaml
+    reloadInterval: 30s
+  defaults:
+    circuitBreaker:
+      failureThreshold: 5
+      successThreshold: 3
+      timeout: 30s
+    retry:
+      maxAttempts: 3
+      baseDelay: 100ms
+      maxDelay: 10s
+      multiplier: 2.0
+      jitterPercent: 0.1
+    timeout:
+      default: 5s
+      max: 5m
+    rateLimit:
+      limit: 1000
+      window: 1m
+      burstSize: 100
+    bulkhead:
+      maxConcurrent: 100
+      maxQueue: 50
+      queueTimeout: 5s
+
+livenessProbe:
+  grpc:
+    port: 50056
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  grpc:
+    port: 50056
+  initialDelaySeconds: 5
+  periodSeconds: 5

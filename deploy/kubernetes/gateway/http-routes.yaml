@@ -1,0 +1,99 @@
+# HTTPRoutes - REST/HTTP API routing
+# Routes traffic to appropriate backend services
+
+---
+# Auth Edge Service - Main authentication endpoints
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: auth-edge-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: https
+  hostnames:
+    - "auth.example.com"
+  rules:
+    # Token endpoints
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /oauth2/token
+        - path:
+            type: PathPrefix
+            value: /oauth2/authorize
+        - path:
+            type: PathPrefix
+            value: /oauth2/revoke
+      backendRefs:
+        - name: session-identity-core
+          port: 4000
+          weight: 100
+      timeouts:
+        request: 30s
+        backendRequest: 25s
+
+    # JWKS endpoint (cacheable)
+    - matches:
+        - path:
+            type: Exact
+            value: /.well-known/jwks.json
+      backendRefs:
+        - name: token-service
+          port: 8081
+          weight: 100
+      timeouts:
+        request: 5s
+
+    # OpenID Configuration
+    - matches:
+        - path:
+            type: Exact
+            value: /.well-known/openid-configuration
+      backendRefs:
+        - name: session-identity-core
+          port: 4000
+          weight: 100
+
+    # MFA endpoints
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mfa
+      backendRefs:
+        - name: mfa-service
+          port: 8084
+          weight: 100
+      timeouts:
+        request: 60s  # WebAuthn can take longer
+
+    # Session management
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /sessions
+      backendRefs:
+        - name: session-identity-core
+          port: 4000
+          weight: 100
+
+---
+# Health check route
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: health-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: health
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /healthz
+      backendRefs:
+        - name: auth-edge-service
+          port: 9090

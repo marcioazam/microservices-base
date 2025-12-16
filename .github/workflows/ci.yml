@@ -1,0 +1,598 @@
+# Auth Platform - CI/CD Pipeline
+# State-of-the-art 2025 workflow with security scanning, automated reviews, and multi-service builds
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Environment to deploy'
+        required: false
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/auth-platform
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  # ============================================
+  # Pre-flight Checks
+  # ============================================
+  preflight:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.changes.outputs.services }}
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Services
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            auth-edge:
+              - 'services/auth-edge/**'
+              - 'api/proto/**'
+              - 'libs/rust/**'
+            token:
+              - 'services/token/**'
+              - 'api/proto/**'
+              - 'libs/rust/**'
+            session-identity:
+              - 'services/session-identity/**'
+              - 'api/proto/**'
+            iam-policy:
+              - 'services/iam-policy/**'
+              - 'api/proto/**'
+              - 'libs/go/**'
+            mfa:
+              - 'services/mfa/**'
+              - 'api/proto/**'
+            deployment:
+              - 'deploy/**'
+              - '.github/workflows/**'
+
+      - name: Check Deploy Conditions
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================
+  # Security Scanning
+  # ============================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: preflight
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Gitleaks (Secret Detection)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: SAST with Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+          generateSarif: true
+
+      - name: Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  # ============================================
+  # AI-Powered Security Review
+  # ============================================
+  ai-security-review:
+    name: AI Security Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - name: Claude Security Review
+        uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+        continue-on-error: true
+
+  # ============================================
+  # Rust Services Build (Matrix)
+  # ============================================
+  build-rust:
+    name: Build Rust - ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [preflight, security-scan]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-edge, token]
+        include:
+          - service: auth-edge
+            port: 8080
+          - service: token
+            port: 8081
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/${{ matrix.service }}
+          cache-on-failure: true
+
+      - name: Install Protobuf
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Check formatting
+        working-directory: services/${{ matrix.service }}
+        run: cargo fmt --all -- --check
+
+      - name: Clippy lints
+        working-directory: services/${{ matrix.service }}
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        run: cargo test --all-features --no-fail-fast
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Run property-based tests
+        working-directory: services/${{ matrix.service }}
+        run: cargo test --all-features -- --ignored proptest
+        env:
+          PROPTEST_CASES: 100
+
+      - name: Build release
+        working-directory: services/${{ matrix.service }}
+        run: cargo build --release --locked
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-binary
+          path: services/${{ matrix.service }}/target/release/${{ matrix.service }}
+          retention-days: 7
+
+  # ============================================
+  # Elixir Services Build (Matrix)
+  # ============================================
+  build-elixir:
+    name: Build Elixir - ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [preflight, security-scan]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [session-identity, mfa]
+        include:
+          - service: session-identity
+            otp: "26.2"
+            elixir: "1.16"
+          - service: mfa
+            otp: "26.2"
+            elixir: "1.16"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            services/${{ matrix.service }}/deps
+            services/${{ matrix.service }}/_build
+          key: ${{ runner.os }}-mix-${{ matrix.service }}-${{ hashFiles(format('services/{0}/mix.lock', matrix.service)) }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ matrix.service }}-
+
+      - name: Install dependencies
+        working-directory: services/${{ matrix.service }}
+        run: mix deps.get
+
+      - name: Check formatting
+        working-directory: services/${{ matrix.service }}
+        run: mix format --check-formatted
+
+      - name: Compile with warnings as errors
+        working-directory: services/${{ matrix.service }}
+        run: mix compile --warnings-as-errors
+
+      - name: Run Credo (static analysis)
+        working-directory: services/${{ matrix.service }}
+        run: mix credo --strict
+
+      - name: Run Dialyzer
+        working-directory: services/${{ matrix.service }}
+        run: mix dialyzer --format github
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        run: mix test --cover
+        env:
+          MIX_ENV: test
+
+      - name: Run property-based tests
+        working-directory: services/${{ matrix.service }}
+        run: mix test --only property
+        env:
+          MIX_ENV: test
+
+      - name: Build release
+        working-directory: services/${{ matrix.service }}
+        run: mix release
+        env:
+          MIX_ENV: prod
+
+  # ============================================
+  # Go Services Build
+  # ============================================
+  build-go:
+    name: Build Go - iam-policy
+    runs-on: ubuntu-latest
+    needs: [preflight, security-scan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: services/iam-policy/go.sum
+
+      - name: Install Protobuf
+        run: |
+          sudo apt-get install -y protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Verify dependencies
+        working-directory: services/iam-policy
+        run: go mod verify
+
+      - name: Run go vet
+        working-directory: services/iam-policy
+        run: go vet ./...
+
+      - name: Run staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          working-directory: services/iam-policy
+          install-go: false
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          working-directory: services/iam-policy
+          version: latest
+
+      - name: Run tests
+        working-directory: services/iam-policy
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Run property-based tests
+        working-directory: services/iam-policy
+        run: go test -v -tags=property ./...
+
+      - name: Build
+        working-directory: services/iam-policy
+        run: |
+          CGO_ENABLED=0 go build -ldflags="-w -s" -o iam-policy ./cmd/server
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iam-policy-binary
+          path: services/iam-policy/iam-policy
+          retention-days: 7
+
+  # ============================================
+  # Docker Build & Push (Matrix)
+  # ============================================
+  docker-build:
+    name: Docker - ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [build-rust, build-elixir, build-go]
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-edge
+          - token
+          - session-identity
+          - iam-policy
+          - mfa
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Run Trivy on image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-image-${{ matrix.service }}.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-image-${{ matrix.service }}.sarif'
+
+  # ============================================
+  # Helm Chart Validation
+  # ============================================
+  helm-validate:
+    name: Helm Chart Validation
+    runs-on: ubuntu-latest
+    needs: preflight
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Lint Helm chart
+        run: helm lint deploy/kubernetes/helm/auth-platform
+
+      - name: Template Helm chart
+        run: |
+          helm template auth-platform deploy/kubernetes/helm/auth-platform \
+            --debug \
+            --dry-run
+
+      - name: Validate with Kubeconform
+        uses: yannh/kubeconform-action@master
+        with:
+          files: deploy/kubernetes/helm/auth-platform/templates/*.yaml
+
+  # ============================================
+  # Integration Tests
+  # ============================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build-rust, build-elixir, build-go]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: auth_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Run integration tests
+        run: |
+          echo "Running integration tests..."
+          # Add integration test commands here
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/auth_platform_test
+          REDIS_URL: redis://localhost:6379
+
+  # ============================================
+  # Deploy to Staging
+  # ============================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [docker-build, helm-validate, integration-tests]
+    if: needs.preflight.outputs.should_deploy == 'true'
+    environment:
+      name: staging
+      url: https://staging.auth.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name auth-platform-staging
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install auth-platform \
+            deploy/kubernetes/helm/auth-platform \
+            --namespace auth-platform \
+            --create-namespace \
+            --set global.imageRegistry=${{ env.REGISTRY }}/ \
+            --set authEdge.image.tag=${{ github.sha }} \
+            --set token.image.tag=${{ github.sha }} \
+            --set sessionIdentity.image.tag=${{ github.sha }} \
+            --set iamPolicy.image.tag=${{ github.sha }} \
+            --set mfa.image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment -n auth-platform --timeout=5m
+
+  # ============================================
+  # Deploy to Production
+  # ============================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://auth.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name auth-platform-production
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install auth-platform \
+            deploy/kubernetes/helm/auth-platform \
+            --namespace auth-platform \
+            -f deploy/kubernetes/helm/auth-platform/values-production.yaml \
+            --set global.imageRegistry=${{ env.REGISTRY }}/ \
+            --set authEdge.image.tag=${{ github.sha }} \
+            --set token.image.tag=${{ github.sha }} \
+            --set sessionIdentity.image.tag=${{ github.sha }} \
+            --set iamPolicy.image.tag=${{ github.sha }} \
+            --set mfa.image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 15m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment -n auth-platform --timeout=10m
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true

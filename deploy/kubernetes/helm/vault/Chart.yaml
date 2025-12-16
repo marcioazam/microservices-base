@@ -1,0 +1,31 @@
+apiVersion: v2
+name: vault-config
+description: HashiCorp Vault configuration for Auth Platform
+type: application
+version: 1.0.0
+appVersion: "1.15.0"
+
+keywords:
+  - vault
+  - secrets
+  - pki
+  - security
+  - hashicorp
+
+home: https://github.com/your-org/auth-platform
+sources:
+  - https://github.com/your-org/auth-platform
+
+maintainers:
+  - name: Platform Team
+    email: platform@your-org.com
+
+dependencies:
+  - name: vault
+    version: "0.27.0"
+    repository: "https://helm.releases.hashicorp.com"
+    condition: vault.enabled
+
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: security

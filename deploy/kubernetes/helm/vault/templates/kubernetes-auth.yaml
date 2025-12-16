@@ -1,0 +1,16 @@
+{{- if and .Values.vault.enabled .Values.kubernetesAuth.enabled }}
+# ServiceAccounts for auth platform services to authenticate with Vault
+{{- range .Values.kubernetesAuth.roles }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .name }}
+  namespace: auth-platform
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+    app.kubernetes.io/part-of: auth-platform
+  annotations:
+    vault.hashicorp.com/role: {{ .name }}
+{{- end }}
+{{- end }}

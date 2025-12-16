@@ -1,0 +1,181 @@
+# Pact Contract Testing CI/CD Pipeline
+# Requirements: 6.1, 6.2, 6.3, 6.4
+
+name: Contract Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+  PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+
+jobs:
+  # Consumer contract tests - Requirements 6.1
+  consumer-tests:
+    name: Consumer Contract Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - auth-edge-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run consumer tests
+        working-directory: auth/${{ matrix.service }}
+        run: cargo test --test pact_consumer_tests
+
+      - name: Publish contracts to Pact Broker
+        if: github.event_name == 'push'
+        run: |
+          pact-broker publish ./auth/${{ matrix.service }}/target/pacts \
+            --broker-base-url ${{ env.PACT_BROKER_URL }} \
+            --broker-token ${{ env.PACT_BROKER_TOKEN }} \
+            --consumer-app-version ${{ github.sha }} \
+            --branch ${{ github.ref_name }} \
+            --tag ${{ github.ref_name }}
+
+  # Provider verification - Requirements 5.2, 6.4
+  provider-verification:
+    name: Provider Verification
+    runs-on: ubuntu-latest
+    needs: consumer-tests
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        service:
+          - token-service
+          - session-identity-core
+          - iam-policy-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        if: matrix.service == 'token-service'
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        if: matrix.service == 'session-identity-core'
+        with:
+          elixir-version: '1.15'
+          otp-version: '26'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        if: matrix.service == 'iam-policy-service'
+        with:
+          go-version: '1.21'
+
+      - name: Start provider service
+        working-directory: auth/${{ matrix.service }}
+        run: |
+          # Start service in background for verification
+          docker-compose -f ../../deployment/docker/docker-compose.yml up -d ${{ matrix.service }}
+          sleep 30  # Wait for service to be ready
+
+      - name: Run provider verification
+        env:
+          PACT_PUBLISH_RESULTS: "true"
+          GIT_COMMIT: ${{ github.sha }}
+          GIT_BRANCH: ${{ github.ref_name }}
+          PROVIDER_HOST: localhost
+          PROVIDER_PORT: 8081
+        working-directory: auth/${{ matrix.service }}
+        run: |
+          if [ "${{ matrix.service }}" == "token-service" ]; then
+            cargo test --test pact_provider_tests
+          elif [ "${{ matrix.service }}" == "session-identity-core" ]; then
+            mix test test/pact_provider_test.exs
+          elif [ "${{ matrix.service }}" == "iam-policy-service" ]; then
+            go test -v ./... -run TestPactProvider
+          fi
+
+      - name: Stop provider service
+        if: always()
+        run: docker-compose -f deployment/docker/docker-compose.yml down
+
+  # Can-I-Deploy check - Requirements 6.2, 6.3
+  can-i-deploy:
+    name: Can I Deploy?
+    runs-on: ubuntu-latest
+    needs: [consumer-tests, provider-verification]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        service:
+          - auth-edge-service
+          - token-service
+          - session-identity-core
+          - iam-policy-service
+          - mfa-service
+    steps:
+      - name: Can I Deploy?
+        run: |
+          pact-broker can-i-deploy \
+            --pacticipant ${{ matrix.service }} \
+            --version ${{ github.sha }} \
+            --to-environment production \
+            --broker-base-url ${{ env.PACT_BROKER_URL }} \
+            --broker-token ${{ env.PACT_BROKER_TOKEN }}
+
+  # Record deployment - Requirements 6.5
+  record-deployment:
+    name: Record Deployment
+    runs-on: ubuntu-latest
+    needs: can-i-deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        service:
+          - auth-edge-service
+          - token-service
+          - session-identity-core
+          - iam-policy-service
+          - mfa-service
+    steps:
+      - name: Record deployment
+        run: |
+          pact-broker record-deployment \
+            --pacticipant ${{ matrix.service }} \
+            --version ${{ github.sha }} \
+            --environment production \
+            --broker-base-url ${{ env.PACT_BROKER_URL }} \
+            --broker-token ${{ env.PACT_BROKER_TOKEN }}
+
+  # Webhook-triggered verification - Requirements 6.4
+  webhook-verification:
+    name: Webhook Provider Verification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'pact-verification'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Verify specific pact
+        env:
+          PACT_URL: ${{ github.event.client_payload.pact_url }}
+          CONSUMER: ${{ github.event.client_payload.consumer }}
+          CONSUMER_VERSION: ${{ github.event.client_payload.consumer_version }}
+        run: |
+          echo "Verifying pact from $CONSUMER version $CONSUMER_VERSION"
+          # Run verification against specific pact URL
+          cargo test --test pact_provider_tests -- --pact-url "$PACT_URL"

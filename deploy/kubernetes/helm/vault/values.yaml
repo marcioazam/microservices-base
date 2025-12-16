@@ -1,0 +1,489 @@
+# HashiCorp Vault Configuration for Auth Platform
+# Production-ready HA deployment with Raft storage
+
+# ============================================
+# Global Settings
+# ============================================
+global:
+  enabled: true
+  namespace: vault
+  tlsDisable: false
+
+# ============================================
+# Vault Server Configuration
+# ============================================
+vault:
+  enabled: true
+  
+  server:
+    # High Availability Configuration
+    ha:
+      enabled: true
+      replicas: 3
+      raft:
+        enabled: true
+        setNodeId: true
+        config: |
+          ui = true
+          
+          listener "tcp" {
+            tls_disable = 0
+            address = "[::]:8200"
+            cluster_address = "[::]:8201"
+            tls_cert_file = "/vault/userconfig/vault-tls/tls.crt"
+            tls_key_file = "/vault/userconfig/vault-tls/tls.key"
+            tls_client_ca_file = "/vault/userconfig/vault-tls/ca.crt"
+          }
+          
+          storage "raft" {
+            path = "/vault/data"
+            retry_join {
+              leader_api_addr = "https://vault-0.vault-internal:8200"
+              leader_ca_cert_file = "/vault/userconfig/vault-tls/ca.crt"
+            }
+            retry_join {
+              leader_api_addr = "https://vault-1.vault-internal:8200"
+              leader_ca_cert_file = "/vault/userconfig/vault-tls/ca.crt"
+            }
+            retry_join {
+              leader_api_addr = "https://vault-2.vault-internal:8200"
+              leader_ca_cert_file = "/vault/userconfig/vault-tls/ca.crt"
+            }
+          }
+          
+          service_registration "kubernetes" {}
+          
+          # Audit logging - Requirements 1.4
+          audit {
+            type = "file"
+            path = "file"
+            options {
+              file_path = "/vault/audit/audit.log"
+              log_raw = false
+            }
+          }
+          
+          # Telemetry for Prometheus
+          telemetry {
+            prometheus_retention_time = "30s"
+            disable_hostname = true
+          }
+    
+    # Resource limits
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+    
+    # Audit storage - Requirements 1.4
+    auditStorage:
+      enabled: true
+      size: 10Gi
+      storageClass: null
+      accessMode: ReadWriteOnce
+    
+    # Data storage
+    dataStorage:
+      enabled: true
+      size: 10Gi
+      storageClass: null
+      accessMode: ReadWriteOnce
+    
+    # Extra volumes for TLS certificates
+    extraVolumes:
+      - type: secret
+        name: vault-tls
+        path: /vault/userconfig/vault-tls
+    
+    # Readiness/Liveness probes
+    readinessProbe:
+      enabled: true
+      path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
+    
+    livenessProbe:
+      enabled: true
+      path: "/v1/sys/health?standbyok=true"
+      initialDelaySeconds: 60
+    
+    # Pod disruption budget
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 2
+    
+    # Affinity for spreading across nodes
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vault
+                component: server
+            topologyKey: kubernetes.io/hostname
+    
+    # Service configuration
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 8200
+      targetPort: 8200
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8200"
+        prometheus.io/path: "/v1/sys/metrics"
+    
+    # Ingress (optional, for UI access)
+    ingress:
+      enabled: false
+      annotations:
+        kubernetes.io/ingress.class: nginx
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      hosts:
+        - host: vault.auth-platform.local
+          paths:
+            - /
+      tls:
+        - secretName: vault-tls-ingress
+          hosts:
+            - vault.auth-platform.local
+  
+  # ============================================
+  # Vault Agent Injector Configuration
+  # ============================================
+  injector:
+    enabled: true
+    replicas: 2
+    
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 50m
+      limits:
+        memory: 128Mi
+        cpu: 250m
+    
+    # Agent defaults
+    agentDefaults:
+      cpuLimit: "500m"
+      cpuRequest: "100m"
+      memLimit: "128Mi"
+      memRequest: "64Mi"
+      template: "map"
+      templateConfig:
+        exitOnRetryFailure: true
+        staticSecretRenderInterval: "5m"
+    
+    # Webhook configuration
+    webhook:
+      failurePolicy: Ignore
+      matchPolicy: Exact
+      timeoutSeconds: 30
+    
+    # Metrics
+    metrics:
+      enabled: true
+  
+  # ============================================
+  # UI Configuration
+  # ============================================
+  ui:
+    enabled: true
+    serviceType: ClusterIP
+    externalPort: 8200
+
+# ============================================
+# Auto-Unseal Configuration (AWS KMS)
+# ============================================
+autoUnseal:
+  enabled: false
+  # Uncomment and configure for production
+  # provider: awskms
+  # awskms:
+  #   region: us-east-1
+  #   kmsKeyId: ""
+  #   accessKey: ""
+  #   secretKey: ""
+
+# ============================================
+# Kubernetes Auth Method Configuration
+# ============================================
+kubernetesAuth:
+  enabled: true
+  # Service accounts that can authenticate
+  roles:
+    - name: auth-edge-service
+      boundServiceAccountNames:
+        - auth-edge-service
+      boundServiceAccountNamespaces:
+        - auth-platform
+      policies:
+        - auth-edge-policy
+      ttl: 1h
+    
+    - name: token-service
+      boundServiceAccountNames:
+        - token-service
+      boundServiceAccountNamespaces:
+        - auth-platform
+      policies:
+        - token-service-policy
+      ttl: 1h
+    
+    - name: session-identity-core
+      boundServiceAccountNames:
+        - session-identity-core
+      boundServiceAccountNamespaces:
+        - auth-platform
+      policies:
+        - session-identity-policy
+      ttl: 1h
+    
+    - name: iam-policy-service
+      boundServiceAccountNames:
+        - iam-policy-service
+      boundServiceAccountNamespaces:
+        - auth-platform
+      policies:
+        - iam-policy-policy
+      ttl: 1h
+    
+    - name: mfa-service
+      boundServiceAccountNames:
+        - mfa-service
+      boundServiceAccountNamespaces:
+        - auth-platform
+      policies:
+        - mfa-service-policy
+      ttl: 1h
+
+# ============================================
+# Secrets Engines Configuration
+# ============================================
+secretsEngines:
+  # KV v2 for static secrets - Requirements 1.1
+  kv:
+    enabled: true
+    path: secret/auth-platform
+    version: 2
+    maxVersions: 10
+    deleteVersionAfter: "0s"
+  
+  # Database engine for dynamic credentials - Requirements 1.2
+  database:
+    enabled: true
+    path: database/auth-platform
+    connections:
+      postgres:
+        plugin: postgresql-database-plugin
+        connectionUrl: "postgresql://{{username}}:{{password}}@postgres.auth-platform.svc:5432/auth_platform?sslmode=require"
+        allowedRoles:
+          - auth-platform-readonly
+          - auth-platform-readwrite
+        username: vault-admin
+        # Password should be set via Vault CLI or API
+      
+      redis:
+        plugin: redis-database-plugin
+        connectionUrl: "redis://redis.auth-platform.svc:6379"
+        allowedRoles:
+          - auth-platform-redis
+        username: default
+    
+    roles:
+      - name: auth-platform-readonly
+        dbName: postgres
+        creationStatements:
+          - "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';"
+          - "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";"
+        defaultTtl: 1h
+        maxTtl: 24h
+      
+      - name: auth-platform-readwrite
+        dbName: postgres
+        creationStatements:
+          - "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';"
+          - "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";"
+        defaultTtl: 1h
+        maxTtl: 24h
+      
+      - name: auth-platform-redis
+        dbName: redis
+        creationStatements:
+          - '["~*", "+@all"]'
+        defaultTtl: 1h
+        maxTtl: 24h
+  
+  # PKI engine for certificates - Requirements 2.1, 2.4
+  pki:
+    enabled: true
+    rootCa:
+      path: pki/auth-platform-root
+      commonName: "Auth Platform Root CA"
+      ttl: 87600h  # 10 years
+      keyType: ec
+      keyBits: 256
+    
+    intermediateCa:
+      path: pki/auth-platform-issuer
+      commonName: "Auth Platform Issuer CA"
+      ttl: 8760h  # 1 year
+      keyType: ec
+      keyBits: 256
+    
+    roles:
+      - name: service-cert
+        allowedDomains:
+          - "auth-platform.svc.cluster.local"
+          - "auth-platform.local"
+        allowSubdomains: true
+        maxTtl: 72h  # Requirements 2.1
+        keyType: ec
+        keyBits: 256
+        requireCn: true
+        allowedUriSans:
+          - "spiffe://auth-platform.local/*"
+      
+      - name: linkerd-identity
+        allowedDomains:
+          - "identity.linkerd.cluster.local"
+        allowSubdomains: false
+        maxTtl: 48h
+        keyType: ec
+        keyBits: 256
+        isCA: true
+  
+  # Transit engine for encryption-as-a-service
+  transit:
+    enabled: true
+    path: transit/auth-platform
+    keys:
+      - name: jwt-signing
+        type: ecdsa-p256
+        exportable: false
+        allowPlaintextBackup: false
+      
+      - name: session-encryption
+        type: aes256-gcm96
+        exportable: false
+        allowPlaintextBackup: false
+
+# ============================================
+# Vault Policies
+# ============================================
+policies:
+  - name: auth-edge-policy
+    rules: |
+      # Read JWT signing keys
+      path "secret/data/auth-platform/jwt/*" {
+        capabilities = ["read"]
+      }
+      
+      # Read service configuration
+      path "secret/data/auth-platform/config/auth-edge/*" {
+        capabilities = ["read"]
+      }
+      
+      # Use transit for encryption
+      path "transit/auth-platform/encrypt/session-encryption" {
+        capabilities = ["update"]
+      }
+      
+      path "transit/auth-platform/decrypt/session-encryption" {
+        capabilities = ["update"]
+      }
+  
+  - name: token-service-policy
+    rules: |
+      # Full access to JWT signing keys
+      path "secret/data/auth-platform/jwt/*" {
+        capabilities = ["create", "read", "update"]
+      }
+      
+      # Read service configuration
+      path "secret/data/auth-platform/config/token-service/*" {
+        capabilities = ["read"]
+      }
+      
+      # Use transit for JWT signing
+      path "transit/auth-platform/sign/jwt-signing" {
+        capabilities = ["update"]
+      }
+      
+      path "transit/auth-platform/verify/jwt-signing" {
+        capabilities = ["update"]
+      }
+      
+      # Issue certificates
+      path "pki/auth-platform-issuer/issue/service-cert" {
+        capabilities = ["create", "update"]
+      }
+  
+  - name: session-identity-policy
+    rules: |
+      # Read secrets
+      path "secret/data/auth-platform/config/session-identity/*" {
+        capabilities = ["read"]
+      }
+      
+      # Dynamic database credentials - Requirements 1.2
+      path "database/auth-platform/creds/auth-platform-readwrite" {
+        capabilities = ["read"]
+      }
+      
+      # Use transit for session encryption
+      path "transit/auth-platform/encrypt/session-encryption" {
+        capabilities = ["update"]
+      }
+      
+      path "transit/auth-platform/decrypt/session-encryption" {
+        capabilities = ["update"]
+      }
+  
+  - name: iam-policy-policy
+    rules: |
+      # Read policy configuration
+      path "secret/data/auth-platform/config/iam-policy/*" {
+        capabilities = ["read"]
+      }
+      
+      # Read-only database access
+      path "database/auth-platform/creds/auth-platform-readonly" {
+        capabilities = ["read"]
+      }
+  
+  - name: mfa-service-policy
+    rules: |
+      # Read MFA secrets (TOTP keys, WebAuthn config)
+      path "secret/data/auth-platform/mfa/*" {
+        capabilities = ["create", "read", "update", "delete"]
+      }
+      
+      # Read service configuration
+      path "secret/data/auth-platform/config/mfa-service/*" {
+        capabilities = ["read"]
+      }
+      
+      # Database access
+      path "database/auth-platform/creds/auth-platform-readwrite" {
+        capabilities = ["read"]
+      }
+
+# ============================================
+# ServiceMonitor for Prometheus
+# ============================================
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
+
+# ============================================
+# cert-manager Integration
+# ============================================
+certManager:
+  enabled: true
+  issuerName: vault-ca-issuer
+  issuerKind: ClusterIssuer

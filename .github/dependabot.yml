@@ -1,0 +1,190 @@
+# Dependabot Configuration
+# Automated dependency updates for all services
+
+version: 2
+
+registries:
+  ghcr:
+    type: docker-registry
+    url: ghcr.io
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
+
+updates:
+  # ============================================
+  # Rust Services
+  # ============================================
+  - package-ecosystem: "cargo"
+    directory: "/auth-edge-service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "rust-team"
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      rust-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "cargo"
+    directory: "/token-service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "rust-team"
+      - "security-team"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "security-critical"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # ============================================
+  # Elixir Services
+  # ============================================
+  - package-ecosystem: "mix"
+    directory: "/session-identity-core"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "elixir-team"
+    labels:
+      - "dependencies"
+      - "elixir"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      elixir-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "mix"
+    directory: "/mfa-service"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "elixir-team"
+      - "security-team"
+    labels:
+      - "dependencies"
+      - "elixir"
+      - "security-critical"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # ============================================
+  # Go Services
+  # ============================================
+  - package-ecosystem: "gomod"
+    directory: "/iam-policy-service"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "go-team"
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      go-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ============================================
+  # Docker Images
+  # ============================================
+  - package-ecosystem: "docker"
+    directory: "/deployment/docker/auth-edge-service"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  - package-ecosystem: "docker"
+    directory: "/deployment/docker/token-service"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/deployment/docker/session-identity-core"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/deployment/docker/iam-policy-service"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/deployment/docker/mfa-service"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # ============================================
+  # GitHub Actions
+  # ============================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"

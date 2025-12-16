@@ -1,0 +1,200 @@
+# Gateway Policies - Security, Rate Limiting, and Traffic Management
+# Using Envoy Gateway policy attachments
+
+---
+# Rate Limiting Policy - Global
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: auth-rate-limit-policy
+  namespace: auth-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: auth-platform-gateway
+  rateLimit:
+    type: Global
+    global:
+      rules:
+        # Default rate limit per client IP
+        - clientSelectors:
+            - headers:
+                - name: x-forwarded-for
+                  type: Distinct
+          limit:
+            requests: 100
+            unit: Second
+        # Stricter limit for token endpoints
+        - clientSelectors:
+            - headers:
+                - name: ":path"
+                  value: "/oauth2/token"
+          limit:
+            requests: 10
+            unit: Second
+        # Very strict for failed auth attempts
+        - clientSelectors:
+            - headers:
+                - name: x-auth-failed
+                  value: "true"
+          limit:
+            requests: 5
+            unit: Minute
+
+---
+# Security Policy - CORS and Headers
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: auth-security-policy
+  namespace: auth-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: auth-platform-gateway
+  cors:
+    allowOrigins:
+      - type: Exact
+        value: "https://app.example.com"
+      - type: RegularExpression
+        value: "https://.*\\.example\\.com"
+    allowMethods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    allowHeaders:
+      - Authorization
+      - Content-Type
+      - X-Request-ID
+      - X-Correlation-ID
+      - DPoP
+    exposeHeaders:
+      - X-Request-ID
+      - X-RateLimit-Limit
+      - X-RateLimit-Remaining
+    maxAge: 86400s
+    allowCredentials: true
+
+---
+# Client Traffic Policy - Timeouts and Retries
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: auth-client-policy
+  namespace: auth-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: auth-platform-gateway
+  timeout:
+    http:
+      requestReceivedTimeout: 30s
+  http1:
+    preserveHeaderCase: true
+  http2:
+    initialStreamWindowSize: 65536
+    initialConnectionWindowSize: 1048576
+  headers:
+    # Security headers
+    withUnderscoresAction: RejectRequest
+    preserveXRequestId: true
+  connection:
+    connectionLimit:
+      value: 10000
+
+---
+# Backend Traffic Policy - Circuit Breaker
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: auth-backend-policy
+  namespace: auth-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: auth-edge-route
+  circuitBreaker:
+    maxConnections: 1024
+    maxPendingRequests: 1024
+    maxRequests: 1024
+    maxRetries: 3
+  loadBalancer:
+    type: LeastRequest
+  healthCheck:
+    active:
+      type: HTTP
+      http:
+        path: /health
+        method: GET
+        expectedStatuses:
+          - start: 200
+            end: 299
+      interval: 10s
+      timeout: 5s
+      unhealthyThreshold: 3
+      healthyThreshold: 2
+  retry:
+    numRetries: 2
+    retryOn:
+      - connect-failure
+      - refused-stream
+      - unavailable
+      - cancelled
+      - retriable-status-codes
+    retriableStatusCodes:
+      - 503
+      - 502
+    perRetry:
+      timeout: 5s
+      backOff:
+        baseInterval: 100ms
+        maxInterval: 1s
+
+---
+# JWT Authentication Policy
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: auth-jwt-policy
+  namespace: auth-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: auth-edge-route
+  jwt:
+    providers:
+      - name: auth-platform
+        issuer: "https://auth.example.com"
+        audiences:
+          - "auth-platform-api"
+        remoteJWKS:
+          uri: "http://token-service.auth-system.svc.cluster.local:8081/.well-known/jwks.json"
+          cacheDuration: 300s
+        claimToHeaders:
+          - claim: sub
+            header: x-user-id
+          - claim: scope
+            header: x-user-scope
+    rules:
+      # Require JWT for protected endpoints
+      - matches:
+          - path:
+              type: PathPrefix
+              value: /sessions
+        requires:
+          provider: auth-platform
+      # Public endpoints (no JWT required)
+      - matches:
+          - path:
+              type: PathPrefix
+              value: /oauth2
+          - path:
+              type: PathPrefix
+              value: /.well-known

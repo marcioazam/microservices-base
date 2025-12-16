@@ -1,0 +1,30 @@
+apiVersion: v2
+name: pact-broker
+description: Pact Broker for Auth Platform contract testing
+type: application
+version: 1.0.0
+appVersion: "2.110.0"
+
+keywords:
+  - pact
+  - contract-testing
+  - api
+  - grpc
+
+home: https://github.com/your-org/auth-platform
+sources:
+  - https://github.com/your-org/auth-platform
+
+maintainers:
+  - name: Platform Team
+    email: platform@your-org.com
+
+dependencies:
+  - name: postgresql
+    version: "14.0.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: testing

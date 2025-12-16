@@ -1,0 +1,281 @@
+# Auth Microservices Platform - Docker Compose
+# Development and local testing environment
+
+version: '3.9'
+
+x-common-env: &common-env
+  LOG_LEVEL: info
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  SPIFFE_ENDPOINT_SOCKET: unix:///spire-agent-socket/spire-agent.sock
+
+x-healthcheck: &healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+services:
+  # ============================================
+  # Core Services
+  # ============================================
+  auth-edge-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/auth-edge-service/Dockerfile
+    image: auth-platform/auth-edge-service:${VERSION:-latest}
+    container_name: auth-edge-service
+    ports:
+      - "8080:8080"   # gRPC
+      - "9090:9090"   # Metrics
+    environment:
+      <<: *common-env
+      SERVICE_NAME: auth-edge-service
+      TOKEN_SERVICE_URL: token-service:8081
+      SESSION_SERVICE_URL: session-identity-core:8082
+      IAM_SERVICE_URL: iam-policy-service:8083
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - spire-agent-socket:/spire-agent-socket:ro
+    depends_on:
+      - redis
+      - token-service
+    networks:
+      - auth-network
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "/app/auth-edge-service", "health"]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  token-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/token-service/Dockerfile
+    image: auth-platform/token-service:${VERSION:-latest}
+    container_name: token-service
+    ports:
+      - "8081:8081"
+      - "9091:9091"
+    environment:
+      <<: *common-env
+      SERVICE_NAME: token-service
+      REDIS_URL: redis://redis:6379
+      KMS_PROVIDER: ${KMS_PROVIDER:-local}
+      AWS_KMS_KEY_ID: ${AWS_KMS_KEY_ID:-}
+    volumes:
+      - spire-agent-socket:/spire-agent-socket:ro
+    depends_on:
+      - redis
+    networks:
+      - auth-network
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "/app/token-service", "health"]
+
+  session-identity-core:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/session-identity-core/Dockerfile
+    image: auth-platform/session-identity-core:${VERSION:-latest}
+    container_name: session-identity-core
+    ports:
+      - "4000:4000"   # HTTP/WebSocket
+      - "8082:8082"   # gRPC
+      - "9092:9092"   # Metrics
+    environment:
+      <<: *common-env
+      SERVICE_NAME: session-identity-core
+      DATABASE_URL: ecto://postgres:postgres@postgres:5432/auth_platform
+      REDIS_URL: redis://redis:6379
+      TOKEN_SERVICE_URL: token-service:8081
+      MFA_SERVICE_URL: mfa-service:8084
+      IAM_SERVICE_URL: iam-policy-service:8083
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-development_secret_key_base_min_64_chars_long_for_security}
+    volumes:
+      - spire-agent-socket:/spire-agent-socket:ro
+    depends_on:
+      - postgres
+      - redis
+      - token-service
+    networks:
+      - auth-network
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+
+  iam-policy-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/iam-policy-service/Dockerfile
+    image: auth-platform/iam-policy-service:${VERSION:-latest}
+    container_name: iam-policy-service
+    ports:
+      - "8083:8083"
+      - "9093:9093"
+    environment:
+      <<: *common-env
+      SERVICE_NAME: iam-policy-service
+      POLICY_PATH: /app/policies
+    volumes:
+      - spire-agent-socket:/spire-agent-socket:ro
+      - ./policies:/app/policies:ro
+    networks:
+      - auth-network
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "/app/iam-policy-service", "health"]
+
+  mfa-service:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/mfa-service/Dockerfile
+    image: auth-platform/mfa-service:${VERSION:-latest}
+    container_name: mfa-service
+    ports:
+      - "8084:8084"
+      - "9094:9094"
+    environment:
+      <<: *common-env
+      SERVICE_NAME: mfa-service
+      DATABASE_URL: ecto://postgres:postgres@postgres:5432/auth_platform
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - spire-agent-socket:/spire-agent-socket:ro
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - auth-network
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/health"]
+
+  # ============================================
+  # Data Layer
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: auth-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: auth_platform
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d:ro
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      <<: *healthcheck
+
+  redis:
+    image: redis:7-alpine
+    container_name: auth-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *healthcheck
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: auth-clickhouse
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./init-scripts/clickhouse:/docker-entrypoint-initdb.d:ro
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "-", "http://localhost:8123/ping"]
+      <<: *healthcheck
+
+  # ============================================
+  # Observability
+  # ============================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.92.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+    networks:
+      - auth-network
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9099:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - auth-network
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - auth-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # UI
+      - "14268:14268"  # HTTP collector
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - auth-network
+
+# ============================================
+# Networks & Volumes
+# ============================================
+networks:
+  auth-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres-data:
+  redis-data:
+  clickhouse-data:
+  prometheus-data:
+  grafana-data:
+  spire-agent-socket:

@@ -1,0 +1,167 @@
+{{- if .Values.vault.enabled }}
+# Job to configure Vault after initialization
+# This configures auth methods, secrets engines, and policies
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vault-config.fullname" . }}-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "vault-config.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: vault-config
+      containers:
+        - name: vault-config
+          image: hashicorp/vault:1.15.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              
+              # Wait for Vault to be ready
+              echo "Waiting for Vault to be ready..."
+              until vault status 2>/dev/null; do
+                echo "Vault not ready, waiting..."
+                sleep 5
+              done
+              
+              echo "Vault is ready, configuring..."
+              
+              # Enable Kubernetes auth method
+              echo "Enabling Kubernetes auth method..."
+              vault auth enable kubernetes 2>/dev/null || true
+              
+              vault write auth/kubernetes/config \
+                kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443" \
+                kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+                token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token
+              
+              # Configure Kubernetes auth roles
+              {{- range .Values.kubernetesAuth.roles }}
+              echo "Creating Kubernetes auth role: {{ .name }}"
+              vault write auth/kubernetes/role/{{ .name }} \
+                bound_service_account_names={{ .boundServiceAccountNames | join "," }} \
+                bound_service_account_namespaces={{ .boundServiceAccountNamespaces | join "," }} \
+                policies={{ .policies | join "," }} \
+                ttl={{ .ttl }}
+              {{- end }}
+              
+              # Enable KV v2 secrets engine
+              {{- if .Values.secretsEngines.kv.enabled }}
+              echo "Enabling KV v2 secrets engine..."
+              vault secrets enable -path={{ .Values.secretsEngines.kv.path }} -version=2 kv 2>/dev/null || true
+              {{- end }}
+              
+              # Enable Database secrets engine
+              {{- if .Values.secretsEngines.database.enabled }}
+              echo "Enabling Database secrets engine..."
+              vault secrets enable -path={{ .Values.secretsEngines.database.path }} database 2>/dev/null || true
+              {{- end }}
+              
+              # Enable PKI secrets engine (root)
+              {{- if .Values.secretsEngines.pki.enabled }}
+              echo "Enabling PKI secrets engine (root)..."
+              vault secrets enable -path={{ .Values.secretsEngines.pki.rootCa.path }} pki 2>/dev/null || true
+              vault secrets tune -max-lease-ttl={{ .Values.secretsEngines.pki.rootCa.ttl }} {{ .Values.secretsEngines.pki.rootCa.path }}
+              
+              # Generate root CA if not exists
+              vault read {{ .Values.secretsEngines.pki.rootCa.path }}/cert/ca 2>/dev/null || \
+              vault write {{ .Values.secretsEngines.pki.rootCa.path }}/root/generate/internal \
+                common_name="{{ .Values.secretsEngines.pki.rootCa.commonName }}" \
+                ttl={{ .Values.secretsEngines.pki.rootCa.ttl }} \
+                key_type={{ .Values.secretsEngines.pki.rootCa.keyType }} \
+                key_bits={{ .Values.secretsEngines.pki.rootCa.keyBits }}
+              
+              # Enable PKI secrets engine (intermediate)
+              echo "Enabling PKI secrets engine (intermediate)..."
+              vault secrets enable -path={{ .Values.secretsEngines.pki.intermediateCa.path }} pki 2>/dev/null || true
+              vault secrets tune -max-lease-ttl={{ .Values.secretsEngines.pki.intermediateCa.ttl }} {{ .Values.secretsEngines.pki.intermediateCa.path }}
+              {{- end }}
+              
+              # Enable Transit secrets engine
+              {{- if .Values.secretsEngines.transit.enabled }}
+              echo "Enabling Transit secrets engine..."
+              vault secrets enable -path={{ .Values.secretsEngines.transit.path }} transit 2>/dev/null || true
+              
+              # Create transit keys
+              {{- range .Values.secretsEngines.transit.keys }}
+              echo "Creating transit key: {{ .name }}"
+              vault write {{ $.Values.secretsEngines.transit.path }}/keys/{{ .name }} \
+                type={{ .type }} \
+                exportable={{ .exportable }} \
+                allow_plaintext_backup={{ .allowPlaintextBackup }} 2>/dev/null || true
+              {{- end }}
+              {{- end }}
+              
+              # Write policies
+              {{- range .Values.policies }}
+              echo "Writing policy: {{ .name }}"
+              cat <<'POLICY' | vault policy write {{ .name }} -
+              {{ .rules | indent 14 }}
+              POLICY
+              {{- end }}
+              
+              # Enable audit logging - Requirements 1.4
+              echo "Enabling audit logging..."
+              vault audit enable file file_path=/vault/audit/audit.log 2>/dev/null || true
+              
+              echo "Vault configuration complete!"
+          env:
+            - name: VAULT_ADDR
+              value: {{ include "vault-config.vaultAddr" . }}
+            - name: VAULT_SKIP_VERIFY
+              value: "true"  # For initial setup, use proper TLS in production
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vault-root-token
+                  key: token
+                  optional: true
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault/token
+              readOnly: true
+      volumes:
+        - name: vault-token
+          secret:
+            secretName: vault-root-token
+            optional: true
+---
+# ServiceAccount for Vault configuration job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+---
+# ClusterRoleBinding for Vault configuration
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "vault-config.fullname" . }}-auth-delegator
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault-config
+    namespace: {{ .Release.Namespace }}
+{{- end }}

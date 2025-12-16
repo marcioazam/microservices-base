@@ -1,0 +1,113 @@
+# GRPCRoutes - gRPC API routing
+# Native gRPC/HTTP2 routing via Gateway API
+
+---
+# Auth Edge gRPC Service
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: auth-edge-grpc-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: grpc
+  hostnames:
+    - "grpc.auth.example.com"
+  rules:
+    # Auth Edge Service
+    - matches:
+        - method:
+            service: auth.edge.AuthEdgeService
+      backendRefs:
+        - name: auth-edge-service
+          port: 8080
+          weight: 100
+
+---
+# Token Service gRPC
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: token-service-grpc-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: grpc
+  hostnames:
+    - "grpc.auth.example.com"
+  rules:
+    - matches:
+        - method:
+            service: auth.token.TokenService
+      backendRefs:
+        - name: token-service
+          port: 8081
+          weight: 100
+
+---
+# Session Identity gRPC
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: session-identity-grpc-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: grpc
+  hostnames:
+    - "grpc.auth.example.com"
+  rules:
+    - matches:
+        - method:
+            service: auth.session.SessionIdentityService
+      backendRefs:
+        - name: session-identity-core
+          port: 8082
+          weight: 100
+
+---
+# IAM Policy gRPC
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: iam-policy-grpc-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: grpc
+  hostnames:
+    - "grpc.auth.example.com"
+  rules:
+    - matches:
+        - method:
+            service: auth.iam.IAMPolicyService
+      backendRefs:
+        - name: iam-policy-service
+          port: 8083
+          weight: 100
+
+---
+# MFA Service gRPC
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: mfa-service-grpc-route
+  namespace: auth-system
+spec:
+  parentRefs:
+    - name: auth-platform-gateway
+      sectionName: grpc
+  hostnames:
+    - "grpc.auth.example.com"
+  rules:
+    - matches:
+        - method:
+            service: auth.mfa.MFAService
+      backendRefs:
+        - name: mfa-service
+          port: 8084
+          weight: 100

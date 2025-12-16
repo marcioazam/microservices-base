@@ -1,0 +1,79 @@
+{{- if .Values.vault.enabled }}
+# Vault Agent Configuration for Auth Platform Services
+# Requirements: 1.1, 1.3 - Automatic secret retrieval and renewal
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vault-agent
+    app.kubernetes.io/part-of: auth-platform
+data:
+  # Common Vault Agent configuration template
+  vault-agent-config.hcl: |
+    exit_after_auth = false
+    pid_file = "/home/vault/pidfile"
+
+    auto_auth {
+      method "kubernetes" {
+        mount_path = "auth/kubernetes"
+        config = {
+          role = "{{ "{{" }} .VaultRole {{ "}}" }}"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/vault/.vault-token"
+        }
+      }
+    }
+
+    cache {
+      use_auto_auth_token = true
+    }
+
+    listener "tcp" {
+      address = "127.0.0.1:8200"
+      tls_disable = true
+    }
+
+    vault {
+      address = "{{ .Values.vault.address }}"
+      {{- if .Values.vault.tlsSkipVerify }}
+      tls_skip_verify = true
+      {{- end }}
+    }
+
+  # Template for JWT signing keys
+  jwt-signing-key.ctmpl: |
+    {{ "{{" }}- with secret "secret/data/auth-platform/jwt/signing-key" {{ "}}" }}
+    {
+      "algorithm": "{{ "{{" }} .Data.data.algorithm {{ "}}" }}",
+      "key_id": "{{ "{{" }} .Data.data.key_id {{ "}}" }}",
+      "private_key": "{{ "{{" }} .Data.data.private_key {{ "}}" }}",
+      "public_key": "{{ "{{" }} .Data.data.public_key {{ "}}" }}"
+    }
+    {{ "{{" }}- end {{ "}}" }}
+
+  # Template for database credentials
+  db-credentials.ctmpl: |
+    {{ "{{" }}- with secret "database/auth-platform/creds/{{ "{{" }} .DbRole {{ "}}" }}" {{ "}}" }}
+    DATABASE_URL=postgresql://{{ "{{" }} .Data.username {{ "}}" }}:{{ "{{" }} .Data.password {{ "}}" }}@postgres.auth-platform.svc:5432/auth_platform?sslmode=require
+    {{ "{{" }}- end {{ "}}" }}
+
+  # Template for Redis credentials
+  redis-credentials.ctmpl: |
+    {{ "{{" }}- with secret "database/auth-platform/creds/auth-platform-redis" {{ "}}" }}
+    REDIS_URL=redis://{{ "{{" }} .Data.username {{ "}}" }}:{{ "{{" }} .Data.password {{ "}}" }}@redis.auth-platform.svc:6379
+    {{ "{{" }}- end {{ "}}" }}
+
+  # Template for service configuration
+  service-config.ctmpl: |
+    {{ "{{" }}- with secret "secret/data/auth-platform/config/{{ "{{" }} .ServiceName {{ "}}" }}/default" {{ "}}" }}
+    {{ "{{" }}- range $key, $value := .Data.data {{ "}}" }}
+    {{ "{{" }} $key | toUpper {{ "}}" }}={{ "{{" }} $value {{ "}}" }}
+    {{ "{{" }}- end {{ "}}" }}
+    {{ "{{" }}- end {{ "}}" }}
+{{- end }}

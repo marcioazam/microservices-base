@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package auth.token;
+
+option go_package = "github.com/auth-platform/proto/token_service";
+
+import "common.proto";
+
+service TokenService {
+  rpc IssueTokenPair(IssueTokenRequest) returns (TokenPairResponse);
+  rpc RefreshTokens(RefreshRequest) returns (TokenPairResponse);
+  rpc RevokeToken(RevokeRequest) returns (RevokeResponse);
+  rpc RevokeAllUserTokens(RevokeAllRequest) returns (RevokeResponse);
+  rpc GetJWKS(auth.common.Empty) returns (JWKSResponse);
+  rpc RotateSigningKey(RotateKeyRequest) returns (RotateKeyResponse);
+}
+
+message IssueTokenRequest {
+  string user_id = 1;
+  string session_id = 2;
+  repeated string scopes = 3;
+  map<string, string> custom_claims = 4;
+  int32 access_token_ttl_seconds = 5;
+  int32 refresh_token_ttl_seconds = 6;
+}
+
+message TokenPairResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string id_token = 3;
+  int64 expires_at = 4;
+  string token_type = 5;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+  repeated string scopes = 2;
+}
+
+message RevokeRequest {
+  string token = 1;
+  string token_type_hint = 2;
+}
+
+message RevokeResponse {
+  bool success = 1;
+}
+
+message RevokeAllRequest {
+  string user_id = 1;
+}
+
+message JWKSResponse {
+  string keys_json = 1;
+}
+
+message RotateKeyRequest {
+  string key_id = 1;
+}
+
+message RotateKeyResponse {
+  bool success = 1;
+  string new_key_id = 2;
+}

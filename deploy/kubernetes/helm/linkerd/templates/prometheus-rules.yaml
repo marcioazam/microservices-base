@@ -1,0 +1,59 @@
+{{- if .Values.alerting.enabled }}
+# Prometheus alerting rules for Linkerd
+# Requirements: 4.4 - Alerts within 60 seconds for >1% error rate
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: linkerd-alerts
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: linkerd
+    app.kubernetes.io/part-of: auth-platform
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: linkerd.rules
+      rules:
+        {{- range .Values.alerting.rules }}
+        - alert: {{ .name }}
+          expr: {{ .expr | quote }}
+          for: {{ .for }}
+          labels:
+            {{- toYaml .labels | nindent 12 }}
+          annotations:
+            {{- toYaml .annotations | nindent 12 }}
+        {{- end }}
+        
+        # Additional Linkerd-specific rules
+        - alert: LinkerdProxyInjectionFailed
+          expr: |
+            sum(increase(linkerd_proxy_injection_failed_total[5m])) by (namespace) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Linkerd proxy injection failed"
+            description: "Proxy injection failed in namespace {{ $labels.namespace }}"
+        
+        - alert: LinkerdIdentityCertExpiringSoon
+          expr: |
+            (linkerd_identity_cert_expiry_timestamp_seconds - time()) < 3600
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Linkerd identity certificate expiring soon"
+            description: "Identity certificate will expire in less than 1 hour"
+        
+        - alert: LinkerdControlPlaneDown
+          expr: |
+            absent(up{job="linkerd-controller"} == 1)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Linkerd control plane is down"
+            description: "Linkerd control plane has been down for more than 2 minutes"
+{{- end }}

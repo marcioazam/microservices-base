@@ -1,0 +1,104 @@
+[package]
+name = "auth-edge-service"
+version = "0.1.0"
+edition = "2021"
+authors = ["Auth Platform Team"]
+description = "Ultra-low latency JWT validation and edge routing service"
+repository = "https://github.com/auth-platform/auth-edge-service"
+documentation = "https://docs.auth-platform.io/edge-service"
+keywords = ["jwt", "authentication", "grpc", "edge", "zero-trust"]
+categories = ["authentication", "web-programming"]
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+tonic = { version = "0.10", features = ["tls"] }
+prost = "0.12"
+prost-types = "0.12"
+
+# Tower middleware stack
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["trace", "timeout"] }
+
+# JWT and crypto
+jsonwebtoken = "9.2"
+ring = "0.17"
+base64 = "0.21"
+sha2 = "0.10"
+
+# X.509 and SPIFFE
+x509-parser = "0.15"
+rustls = "0.21"
+rustls-pemfile = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for JWKS fetch
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# OpenTelemetry observability
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.14", features = ["tonic"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+tracing-opentelemetry = "0.22"
+
+# Metrics
+prometheus = "0.13"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async utilities
+async-trait = "0.1"
+parking_lot = "0.12"
+arc-swap = "1.6"
+futures = "0.3"
+
+# UUID for correlation IDs
+uuid = { version = "1.6", features = ["v4"] }
+
+# Circuit breaker (legacy)
+failsafe = "1.2"
+
+# Cow for zero-copy
+borrow = "0.1"
+
+[build-dependencies]
+tonic-build = "0.10"
+
+[dev-dependencies]
+proptest = "1.4"
+tokio-test = "0.4"
+mockall = "0.12"
+# Pact contract testing - Requirements 5.1
+pact_consumer = "1.1"
+pact_models = "1.1"
+pact-plugin-driver = "0.5"
+
+[features]
+default = []
+otel = ["opentelemetry", "opentelemetry-otlp", "opentelemetry_sdk", "tracing-opentelemetry"]
+pact = ["pact_consumer", "pact_models", "pact-plugin-driver"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
+
+[[bin]]
+name = "auth-edge-service"
+path = "src/main.rs"

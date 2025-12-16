@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package auth.common;
+
+option go_package = "github.com/auth-platform/proto/common";
+
+// Common error response used across all services
+message ErrorResponse {
+  string code = 1;
+  string message = 2;
+  string correlation_id = 3;
+  map<string, string> details = 4;
+}
+
+// Empty message for requests that don't need parameters
+message Empty {}
+
+// Pagination request
+message PaginationRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+// Pagination response
+message PaginationResponse {
+  int32 total = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_pages = 4;
+}
+
+// Timestamp wrapper
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}

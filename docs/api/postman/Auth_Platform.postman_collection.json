@@ -1,0 +1,135 @@
+{
+  "info": {
+    "name": "Auth Platform API",
+    "description": "Complete API collection for Auth Platform services via Envoy Gateway.",
+    "_postman_id": "auth-platform-2025",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "base_url", "value": "https://grpc.auth.example.com:8443"},
+    {"key": "access_token", "value": ""},
+    {"key": "refresh_token", "value": ""},
+    {"key": "user_id", "value": "user-123"},
+    {"key": "session_id", "value": ""},
+    {"key": "client_id", "value": "web-app-client"}
+  ],
+  "item": [
+    {
+      "name": "Authentication Flow",
+      "item": [
+        {
+          "name": "1. Authenticate",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.session.SessionIdentityService/Authenticate",
+            "body": {"mode": "raw", "raw": "{\"email\":\"user@example.com\",\"password\":\"{{password}}\",\"device_fingerprint\":\"fp_abc123\",\"ip_address\":\"192.168.1.100\",\"user_agent\":\"Mozilla/5.0\"}"}
+          },
+          "event": [{"listen": "test", "script": {"exec": ["if(pm.response.code===200){var d=pm.response.json();if(d.user_id)pm.collectionVariables.set('user_id',d.user_id);if(d.session_id)pm.collectionVariables.set('session_id',d.session_id);}"]}}]
+        },
+        {
+          "name": "2. Check MFA Required",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.mfa.MFAService/CheckMFARequired",
+            "body": {"mode": "raw", "raw": "{\"user_id\":\"{{user_id}}\",\"session_id\":\"{{session_id}}\"}"}
+          }
+        },
+        {
+          "name": "3. Verify TOTP",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.mfa.MFAService/VerifyTOTP",
+            "body": {"mode": "raw", "raw": "{\"user_id\":\"{{user_id}}\",\"code\":\"123456\"}"}
+          }
+        },
+        {
+          "name": "4. Issue Token Pair",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.token.TokenService/IssueTokenPair",
+            "body": {"mode": "raw", "raw": "{\"user_id\":\"{{user_id}}\",\"session_id\":\"{{session_id}}\",\"scopes\":[\"openid\",\"profile\"],\"access_token_ttl_seconds\":900}"}
+          },
+          "event": [{"listen": "test", "script": {"exec": ["if(pm.response.code===200){var d=pm.response.json();if(d.access_token)pm.collectionVariables.set('access_token',d.access_token);if(d.refresh_token)pm.collectionVariables.set('refresh_token',d.refresh_token);}"]}}]
+        }
+      ]
+    },
+    {
+      "name": "Auth Edge Service",
+      "item": [
+        {
+          "name": "Validate Token",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}, {"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "url": "{{base_url}}/auth.edge.AuthEdgeService/ValidateToken",
+            "body": {"mode": "raw", "raw": "{\"token\":\"{{access_token}}\",\"required_claims\":[\"sub\",\"exp\"]}"}
+          }
+        },
+        {
+          "name": "Introspect Token",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.edge.AuthEdgeService/IntrospectToken",
+            "body": {"mode": "raw", "raw": "{\"token\":\"{{access_token}}\"}"}
+          }
+        },
+        {
+          "name": "Get Service Identity",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.edge.AuthEdgeService/GetServiceIdentity",
+            "body": {"mode": "raw", "raw": "{\"certificate_pem\":\"-----BEGIN CERTIFICATE-----\\nMIIB...\\n-----END CERTIFICATE-----\"}"}
+          }
+        }
+      ]
+    },
+    {
+      "name": "Token Service",
+      "item": [
+        {
+          "name": "Issue Token Pair",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.token.TokenService/IssueTokenPair",
+            "body": {"mode": "raw", "raw": "{\"user_id\":\"{{user_id}}\",\"session_id\":\"{{session_id}}\",\"scopes\":[\"openid\",\"profile\"],\"access_token_ttl_seconds\":900,\"refresh_token_ttl_seconds\":86400}"}
+          }
+        },
+        {
+          "name": "Refresh Tokens",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.token.TokenService/RefreshTokens",
+            "body": {"mode": "raw", "raw": "{\"refresh_token\":\"{{refresh_token}}\",\"scopes\":[\"openid\",\"profile\"]}"}
+          },
+          "event": [{"listen": "test", "script": {"exec": ["if(pm.response.code===200){var d=pm.response.json();if(d.access_token)pm.collectionVariables.set('access_token',d.access_token);if(d.refresh_token)pm.collectionVariables.set('refresh_token',d.refresh_token);}"]}}]
+        },
+        {
+          "name": "Revoke Token",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.token.TokenService/RevokeToken",
+            "body": {"mode": "raw", "raw": "{\"token\":\"{{access_token}}\",\"token_type_hint\":\"access_token\"}"}
+          }
+        },
+        {
+          "name": "Get JWKS",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/grpc"}],
+            "url": "{{base_url}}/auth.token.TokenService/GetJWKS",
+            "body": {"mode": "raw", "raw": "{}"}
+          }
+        }
+      ]
+    }
+  ]
+}

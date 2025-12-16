@@ -1,0 +1,177 @@
+# Implementation Plan
+
+- [x] 1. Refactor Error Handling Module
+  - [x] 1.1 Create non-exhaustive AuthEdgeError enum with structured variants
+    - Add `#[non_exhaustive]` attribute to error enum
+    - Add structured fields to error variants (e.g., `TokenExpired { expired_at }`)
+    - Implement Display with sanitization for sensitive data
+    - _Requirements: 1.1, 1.4_
+  - [x] 1.2 Implement From trait conversions for all error types
+    - Add From<jsonwebtoken::errors::Error> for AuthEdgeError
+    - Add From<reqwest::Error> for AuthEdgeError
+    - Add From<tonic::Status> for AuthEdgeError
+    - _Requirements: 1.2_
+  - [x] 1.3 Create ErrorResponse struct with correlation ID support
+    - Implement to_status() method with sanitization
+    - Add correlation ID to all error responses
+    - _Requirements: 1.3_
+  - [x] 1.4 Write property test for error sanitization
+    - **Property 2: Error Response Sanitization**
+    - **Validates: Requirements 1.3, 1.4**
+
+- [x] 2. Implement Generic Circuit Breaker with Tower
+  - [x] 2.1 Create generic CircuitBreaker<S, Req, Res> struct
+    - Implement Tower Service trait with proper bounds
+    - Add const generics for configuration (FAILURE_THRESHOLD, TIMEOUT_SECS)
+    - Use Arc<RwLock<CircuitState>> for thread-safe state
+    - _Requirements: 2.1, 2.2_
+  - [x] 2.2 Implement CircuitBreakerLayer for Tower composition
+    - Create Layer implementation for easy service wrapping
+    - Add metrics emission on state transitions
+    - _Requirements: 2.3_
+  - [x] 2.3 Write property test for circuit breaker state machine
+    - **Property 10: Circuit Breaker State Machine**
+    - **Validates: Requirements 10.2**
+  - [x] 2.4 Write property test for circuit open fail-fast
+    - **Property 4: Circuit Open Fail-Fast**
+    - **Validates: Requirements 2.4**
+
+- [x] 3. Implement Type-State JWT Validation
+  - [x] 3.1 Create sealed trait hierarchy for token states
+    - Define private::Sealed trait
+    - Create Unvalidated, SignatureValidated, Validated marker types
+    - Implement TokenState trait for each marker
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [x] 3.2 Implement Token<State> wrapper with state transitions
+    - Add parse() -> Token<Unvalidated>
+    - Add validate_signature() -> Token<SignatureValidated>
+    - Add validate_claims() -> Token<Validated>
+    - Only expose claims() on Token<Validated>
+    - _Requirements: 4.4_
+  - [x] 3.3 Refactor JwtValidator to use type-state pattern
+    - Update validate() to return Token<Validated>
+    - Add zero-copy header parsing where possible
+    - _Requirements: 6.1, 6.2_
+  - [x] 3.4 Write property test for JWT validation round-trip
+    - **Property 9: JWT Validation Round-Trip**
+    - **Validates: Requirements 10.1**
+
+- [x] 4. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 5. Implement Single-Flight JWK Cache
+  - [x] 5.1 Refactor JwkCache with single-flight pattern
+    - Add Mutex<Option<Shared<Future>>> for inflight tracking
+    - Implement refresh_single_flight() method
+    - Use ArcSwap for atomic cache updates (already in place)
+    - _Requirements: 7.2_
+  - [x] 5.2 Add proper synchronization for concurrent access
+    - Ensure cache reads don't block on refresh
+    - Use Arc for shared key ownership
+    - _Requirements: 6.3, 7.4_
+  - [x] 5.3 Write property test for single-flight behavior
+    - **Property 5: Single-Flight Cache Refresh**
+    - **Validates: Requirements 7.2**
+  - [x] 5.4 Write property test for concurrent consistency
+    - **Property 6: Concurrent Request Consistency**
+    - **Validates: Requirements 7.4**
+
+- [x] 6. Implement Tower Middleware Stack
+  - [x] 6.1 Create RateLimiterLayer implementing Tower Layer
+    - Wrap AdaptiveRateLimiter in Tower Layer
+    - Add rate limit headers to responses
+    - _Requirements: 3.2, 8.4_
+  - [x] 6.2 Create TimeoutLayer with configurable duration
+    - Use tower::timeout::TimeoutLayer
+    - Configure from service config
+    - _Requirements: 3.4_
+  - [x] 6.3 Create TracingLayer with OpenTelemetry integration
+    - Add W3C trace context propagation
+    - Record error events with structured attributes
+    - _Requirements: 3.3, 8.1, 8.2_
+  - [x] 6.4 Compose service stack with ServiceBuilder
+    - Order: Tracing → Timeout → RateLimit → CircuitBreaker → Service
+    - _Requirements: 3.1_
+  - [x] 6.5 Write property test for timeout enforcement
+    - **Property 3: Timeout Enforcement**
+    - **Validates: Requirements 2.2, 3.4**
+  - [x] 6.6 Write property test for rate limit headers
+    - **Property 8: Rate Limit Header Presence**
+    - **Validates: Requirements 8.4**
+  - [x] 6.7 Write property test for rate limiter enforcement
+    - **Property 11: Rate Limiter Enforcement**
+    - **Validates: Requirements 10.3**
+
+- [x] 7. Implement Type-Safe Configuration Builder
+  - [x] 7.1 Create ConfigBuilder with type-state pattern
+    - Use phantom types for required field tracking
+    - Only allow build() when all required fields set
+    - _Requirements: 5.1, 5.2_
+  - [x] 7.2 Add const generics for compile-time validation
+    - Validate TTL bounds for JwkCache
+    - Validate threshold constraints for CircuitBreaker
+    - _Requirements: 5.3, 5.4_
+
+- [x] 8. Refactor SPIFFE Module
+  - [x] 8.1 Implement SpiffeId parsing with round-trip support
+    - SpiffeId::parse() and to_uri() already implemented
+    - SpiffeValidator with allowlist already implemented
+    - _Requirements: 6.4, 9.1, 9.2, 9.3_
+  - [x] 8.2 Optimize SpiffeId for zero-copy with Cow<str>
+    - Use Cow<str> for trust_domain and path
+    - Avoid intermediate allocations
+    - _Requirements: 6.4_
+  - [x] 8.3 Write property test for SPIFFE round-trip
+    - **Property 12: SPIFFE ID Round-Trip**
+    - **Validates: Requirements 10.4**
+
+- [x] 9. Add OpenTelemetry Observability
+  - [x] 9.1 Configure OpenTelemetry tracing subscriber
+    - Set up OTLP exporter
+    - Configure sampling strategy
+    - _Requirements: 8.1_
+  - [x] 9.2 Add structured error event recording
+    - Record correlation_id, error_type, timestamp
+    - Add span attributes for debugging
+    - _Requirements: 8.2_
+  - [x] 9.3 Add circuit breaker metrics
+
+    - Emit state change metrics with service labels
+    - Track failure/success counts
+    - _Requirements: 2.3, 8.3_
+  - [x] 9.4 Write property test for error event attributes
+    - **Property 7: Error Event Attributes**
+    - **Validates: Requirements 8.2**
+
+- [x] 10. Implement Graceful Shutdown
+  - [x] 10.1 Add JoinSet for background task management
+    - Track all spawned tasks
+    - Implement graceful cancellation
+    - _Requirements: 7.1_
+  - [x] 10.2 Add shutdown signal handling
+    - Listen for SIGTERM/SIGINT
+    - Cancel pending operations gracefully
+    - _Requirements: 7.3_
+
+- [x] 11. Update gRPC Service Implementation
+  - [x] 11.1 Refactor AuthEdgeServiceImpl to use new components
+    - Use type-state JWT validation
+    - Use Tower service stack
+    - Add correlation ID to all responses
+    - _Requirements: 1.3, 4.4_
+  - [x] 11.2 Update error handling in gRPC handlers
+    - Use new ErrorResponse with sanitization
+    - Propagate correlation IDs
+    - _Requirements: 1.3, 1.4_
+
+- [x] 12. Update Cargo.toml Dependencies
+  - [x] 12.1 Add modern dependencies
+    - Add tower = "0.4" with full features
+    - Add opentelemetry = "0.21" with otlp feature
+    - Add opentelemetry-otlp = "0.14"
+    - Add futures = "0.3" for Shared futures
+    - Update existing dependencies to latest versions
+    - _Requirements: 3.1, 8.1_
+
+- [x] 13. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.

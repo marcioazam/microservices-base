@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package auth.iam;
+
+option go_package = "github.com/auth-platform/proto/iam_policy";
+
+import "common.proto";
+
+service IAMPolicyService {
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+  rpc BatchAuthorize(BatchAuthorizeRequest) returns (BatchAuthorizeResponse);
+  rpc GetUserPermissions(GetPermissionsRequest) returns (PermissionsResponse);
+  rpc GetUserRoles(GetRolesRequest) returns (RolesResponse);
+  rpc ReloadPolicies(ReloadRequest) returns (ReloadResponse);
+}
+
+message AuthorizeRequest {
+  string subject_id = 1;
+  string resource_type = 2;
+  string resource_id = 3;
+  string action = 4;
+  map<string, string> subject_attributes = 5;
+  map<string, string> resource_attributes = 6;
+  map<string, string> environment = 7;
+}
+
+message AuthorizeResponse {
+  bool allowed = 1;
+  string policy_id = 2;
+  string reason = 3;
+  repeated string matched_rules = 4;
+}
+
+message BatchAuthorizeRequest {
+  repeated AuthorizeRequest requests = 1;
+}
+
+message BatchAuthorizeResponse {
+  repeated AuthorizeResponse responses = 1;
+}
+
+message GetPermissionsRequest {
+  string user_id = 1;
+  string resource_type = 2;
+}
+
+message PermissionsResponse {
+  repeated Permission permissions = 1;
+}
+
+message Permission {
+  string resource_type = 1;
+  string resource_id = 2;
+  repeated string actions = 3;
+}
+
+message GetRolesRequest {
+  string user_id = 1;
+}
+
+message RolesResponse {
+  repeated Role roles = 1;
+}
+
+message Role {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string parent_role_id = 4;
+  repeated string permissions = 5;
+}
+
+message ReloadRequest {
+  bool force = 1;
+}
+
+message ReloadResponse {
+  bool success = 1;
+  int32 policies_loaded = 2;
+  string error_message = 3;
+}

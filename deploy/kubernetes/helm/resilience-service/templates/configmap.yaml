@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "resilience-service.fullname" . }}-config
+  labels:
+    {{- include "resilience-service.labels" . | nindent 4 }}
+data:
+  policies.yaml: |
+    policies:
+      default:
+        circuit_breaker:
+          failure_threshold: {{ .Values.config.defaults.circuitBreaker.failureThreshold }}
+          success_threshold: {{ .Values.config.defaults.circuitBreaker.successThreshold }}
+          timeout: {{ .Values.config.defaults.circuitBreaker.timeout }}
+        retry:
+          max_attempts: {{ .Values.config.defaults.retry.maxAttempts }}
+          base_delay: {{ .Values.config.defaults.retry.baseDelay }}
+          max_delay: {{ .Values.config.defaults.retry.maxDelay }}
+          multiplier: {{ .Values.config.defaults.retry.multiplier }}
+          jitter_percent: {{ .Values.config.defaults.retry.jitterPercent }}
+        timeout:
+          default: {{ .Values.config.defaults.timeout.default }}
+          max: {{ .Values.config.defaults.timeout.max }}
+        rate_limit:
+          algorithm: token_bucket
+          limit: {{ .Values.config.defaults.rateLimit.limit }}
+          window: {{ .Values.config.defaults.rateLimit.window }}
+          burst_size: {{ .Values.config.defaults.rateLimit.burstSize }}
+        bulkhead:
+          max_concurrent: {{ .Values.config.defaults.bulkhead.maxConcurrent }}
+          max_queue: {{ .Values.config.defaults.bulkhead.maxQueue }}
+          queue_timeout: {{ .Values.config.defaults.bulkhead.queueTimeout }}

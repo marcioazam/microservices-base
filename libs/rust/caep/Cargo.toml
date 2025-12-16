@@ -1,0 +1,23 @@
+[package]
+name = "auth-caep"
+version = "0.1.0"
+edition = "2021"
+description = "CAEP (Continuous Access Evaluation Protocol) implementation for Auth Platform"
+license = "Proprietary"
+
+[dependencies]
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+jsonwebtoken = "9.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+tracing = "0.1"
+base64 = "0.21"
+
+[dev-dependencies]
+proptest = "1.4"
+tokio-test = "0.4"

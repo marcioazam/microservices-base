@@ -1,0 +1,138 @@
+{{- if .Values.authEdgeService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-auth-edge
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth-edge-service
+  annotations:
+    kubernetes.io/change-cause: {{ .Values.authEdgeService.image.tag | quote }}
+spec:
+  {{- if not .Values.authEdgeService.autoscaling.enabled }}
+  replicas: {{ .Values.authEdgeService.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: auth-edge-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "auth-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: auth-edge-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.authEdgeService.service.metricsPort }}"
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-auth-edge.yaml") . | sha256sum }}
+        # Vault Agent Injector - Requirements 1.1
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "auth-edge-service"
+        vault.hashicorp.com/agent-inject-secret-config.env: "secret/data/auth-platform/config/auth-edge/default"
+        # Linkerd injection - Requirements 3.2
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-cpu-request: "100m"
+        config.linkerd.io/proxy-memory-request: "20Mi"
+    spec:
+      serviceAccountName: {{ include "auth-platform.serviceAccountName" . }}-auth-edge
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: auth-edge-service
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.authEdgeService.image.repository }}:{{ .Values.authEdgeService.image.tag }}"
+          imagePullPolicy: {{ .Values.authEdgeService.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.authEdgeService.service.grpcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.authEdgeService.service.metricsPort }}
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "auth-edge-service"
+            - name: GRPC_PORT
+              value: "{{ .Values.authEdgeService.service.grpcPort }}"
+            - name: METRICS_PORT
+              value: "{{ .Values.authEdgeService.service.metricsPort }}"
+            - name: TOKEN_SERVICE_URL
+              value: "{{ include "auth-platform.fullname" . }}-token-service:{{ .Values.tokenService.service.grpcPort }}"
+            - name: SESSION_SERVICE_URL
+              value: "{{ include "auth-platform.fullname" . }}-session-core:{{ .Values.sessionIdentityCore.service.grpcPort }}"
+            - name: IAM_SERVICE_URL
+              value: "{{ include "auth-platform.fullname" . }}-iam-policy:{{ .Values.iamPolicyService.service.grpcPort }}"
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix://{{ .Values.global.spiffe.socketPath }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.global.observability.tracing.endpoint }}"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "auth-platform.fullname" . }}-redis
+                  key: url
+          envFrom:
+            - configMapRef:
+                name: {{ include "auth-platform.fullname" . }}-auth-edge-config
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /spire-agent-socket
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            grpc:
+              port: {{ .Values.authEdgeService.service.grpcPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            grpc:
+              port: {{ .Values.authEdgeService.service.grpcPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.authEdgeService.resources | nindent 12 }}
+      volumes:
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.authEdgeService.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.authEdgeService.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.authEdgeService.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "auth-platform.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: auth-edge-service
+{{- end }}

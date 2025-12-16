@@ -1,0 +1,24 @@
+[package]
+name = "auth-vault-client"
+version = "0.1.0"
+edition = "2021"
+description = "HashiCorp Vault client for Auth Platform"
+license = "MIT"
+
+[dependencies]
+async-trait = "0.1"
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+secrecy = { version = "0.8", features = ["serde"] }
+zeroize = { version = "1.7", features = ["derive"] }
+base64 = "0.21"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+proptest = "1.4"
+tokio-test = "0.4"
+wiremock = "0.5"

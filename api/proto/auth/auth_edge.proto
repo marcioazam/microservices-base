@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package auth.edge;
+
+option go_package = "github.com/auth-platform/proto/auth_edge";
+
+import "common.proto";
+
+service AuthEdgeService {
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc IntrospectToken(IntrospectRequest) returns (IntrospectResponse);
+  rpc GetServiceIdentity(IdentityRequest) returns (IdentityResponse);
+}
+
+message ValidateTokenRequest {
+  string token = 1;
+  repeated string required_claims = 2;
+}
+
+message ValidateTokenResponse {
+  bool valid = 1;
+  string subject = 2;
+  map<string, string> claims = 3;
+  string error_code = 4;
+  string error_message = 5;
+}
+
+message IntrospectRequest {
+  string token = 1;
+}
+
+message IntrospectResponse {
+  bool active = 1;
+  string subject = 2;
+  string client_id = 3;
+  repeated string scopes = 4;
+  int64 expires_at = 5;
+  int64 issued_at = 6;
+  string token_type = 7;
+  map<string, string> claims = 8;
+}
+
+message IdentityRequest {
+  string certificate_pem = 1;
+}
+
+message IdentityResponse {
+  string spiffe_id = 1;
+  string service_name = 2;
+  bool valid = 3;
+  string error_message = 4;
+}

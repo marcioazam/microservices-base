@@ -1,0 +1,47 @@
+{{- if and .Values.vault.enabled .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "vault-config.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /v1/sys/metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+      params:
+        format:
+          - prometheus
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true  # Use proper CA in production
+      bearerTokenSecret:
+        name: vault-prometheus-token
+        key: token
+---
+# Token for Prometheus to scrape Vault metrics
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-prometheus-token
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # This should be replaced with a proper Vault token with metrics read access
+  token: ""
+{{- end }}

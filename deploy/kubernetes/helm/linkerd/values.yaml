@@ -1,0 +1,240 @@
+# Linkerd Service Mesh Configuration for Auth Platform
+# Requirements: 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4
+
+# ============================================
+# Global Settings
+# ============================================
+global:
+  namespace: linkerd
+  clusterDomain: cluster.local
+
+# ============================================
+# cert-manager Configuration
+# ============================================
+certManager:
+  enabled: true
+  namespace: cert-manager
+  
+  # Self-signed ClusterIssuer for Linkerd
+  clusterIssuer:
+    name: linkerd-self-signed-issuer
+    spec:
+      selfSigned: {}
+
+# ============================================
+# Linkerd CRDs
+# ============================================
+linkerd:
+  crds:
+    enabled: true
+
+  # ============================================
+  # Control Plane Configuration
+  # ============================================
+  controlPlane:
+    enabled: true
+    
+    # Identity configuration - Requirements 3.1, 3.3
+    identity:
+      issuer:
+        scheme: kubernetes.io/tls
+      externalCA: true
+    
+    # Proxy configuration - Requirements 3.2
+    proxy:
+      resources:
+        cpu:
+          request: 100m
+          limit: 500m
+        memory:
+          request: 20Mi
+          limit: 250Mi
+      
+      # Trace context propagation - Requirements 4.2
+      trace:
+        collectorSvcAddr: otel-collector.observability.svc.cluster.local:4317
+        collectorSvcAccount: otel-collector
+    
+    # Proxy init configuration
+    proxyInit:
+      resources:
+        cpu:
+          request: 10m
+          limit: 100m
+        memory:
+          request: 10Mi
+          limit: 50Mi
+    
+    # High availability
+    controllerReplicas: 3
+    
+    # Pod disruption budget
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 2
+    
+    # Policy controller - Requirements 3.5
+    policyController:
+      defaultAllowPolicy: all-authenticated
+      logLevel: info
+
+  # ============================================
+  # Linkerd Viz Extension - Requirements 4.1, 4.3
+  # ============================================
+  viz:
+    enabled: true
+    
+    # Prometheus integration - Requirements 4.1
+    prometheus:
+      enabled: true
+      args:
+        storage.tsdb.retention.time: 6h
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+    
+    # Grafana dashboards - Requirements 4.3
+    grafana:
+      enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    
+    # Dashboard
+    dashboard:
+      replicas: 2
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+# ============================================
+# Trust Anchor Certificate - Requirements 3.4
+# ============================================
+trustAnchor:
+  # 10 years validity
+  duration: 87600h
+  renewBefore: 8760h  # 1 year before expiry
+  
+  subject:
+    organizations:
+      - Auth Platform
+  
+  commonName: root.linkerd.cluster.local
+  
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+# ============================================
+# Identity Issuer Certificate - Requirements 3.4
+# ============================================
+identityIssuer:
+  # 48 hours validity
+  duration: 48h
+  renewBefore: 25h  # Renew 25 hours before expiry
+  
+  subject:
+    organizations:
+      - Auth Platform
+  
+  commonName: identity.linkerd.cluster.local
+  
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+# ============================================
+# Service Profiles
+# ============================================
+serviceProfiles:
+  enabled: true
+  
+  # Auth Edge Service profile
+  authEdgeService:
+    routes:
+      - name: validate-token
+        condition:
+          method: POST
+          pathRegex: /auth.edge.AuthEdgeService/ValidateToken
+        timeout: 5s
+        retries:
+          budget:
+            retryRatio: 0.2
+            minRetriesPerSecond: 10
+            ttl: 10s
+      
+      - name: health-check
+        condition:
+          method: POST
+          pathRegex: /grpc.health.v1.Health/Check
+        timeout: 1s
+
+# ============================================
+# Network Policies - Requirements 10.1
+# ============================================
+networkPolicies:
+  enabled: true
+  
+  # Allow only meshed traffic
+  defaultDeny: true
+  
+  # Allow Linkerd control plane
+  allowControlPlane: true
+  
+  # Allow Prometheus scraping
+  allowPrometheus: true
+
+# ============================================
+# Alerting Rules - Requirements 4.4
+# ============================================
+alerting:
+  enabled: true
+  
+  rules:
+    # Error rate alert (>1% triggers within 60s)
+    - name: HighErrorRate
+      expr: |
+        sum(rate(response_total{classification="failure"}[1m])) by (deployment)
+        /
+        sum(rate(response_total[1m])) by (deployment)
+        > 0.01
+      for: 60s
+      labels:
+        severity: warning
+      annotations:
+        summary: "High error rate detected"
+        description: "Deployment {{ $labels.deployment }} has error rate > 1%"
+    
+    # Latency alert (p99 > 500ms)
+    - name: HighLatency
+      expr: |
+        histogram_quantile(0.99, sum(rate(response_latency_ms_bucket[1m])) by (le, deployment))
+        > 500
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High latency detected"
+        description: "Deployment {{ $labels.deployment }} has p99 latency > 500ms"
+
+# ============================================
+# ServiceMonitor for Prometheus
+# ============================================
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus

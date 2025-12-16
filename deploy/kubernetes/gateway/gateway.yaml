@@ -1,0 +1,84 @@
+# Gateway - Entry point for Auth Platform
+# Defines listeners for HTTPS and gRPC traffic
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: auth-platform-gateway
+  namespace: auth-system
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: auth-platform-gateway
+  listeners:
+    # HTTPS listener for REST/HTTP APIs
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "auth.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: auth-platform-tls
+            namespace: auth-system
+      allowedRoutes:
+        namespaces:
+          from: Same
+
+    # gRPC listener with TLS
+    - name: grpc
+      protocol: HTTPS
+      port: 8443
+      hostname: "grpc.auth.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: auth-platform-grpc-tls
+            namespace: auth-system
+      allowedRoutes:
+        namespaces:
+          from: Same
+        kinds:
+          - kind: GRPCRoute
+
+    # Health check listener (internal)
+    - name: health
+      protocol: HTTP
+      port: 8080
+      hostname: "health.auth.internal"
+      allowedRoutes:
+        namespaces:
+          from: Same
+
+---
+# Certificate for TLS termination (cert-manager)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-platform-tls
+  namespace: auth-system
+spec:
+  secretName: auth-platform-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - auth.example.com
+    - "*.auth.example.com"
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-platform-grpc-tls
+  namespace: auth-system
+spec:
+  secretName: auth-platform-grpc-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - grpc.auth.example.com

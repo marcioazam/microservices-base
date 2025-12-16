@@ -1,0 +1,177 @@
+# Pact Broker Configuration for Auth Platform
+# Requirements: 5.4, 6.1, 6.2, 6.3, 6.4, 6.5
+
+# ============================================
+# Global Settings
+# ============================================
+global:
+  namespace: pact
+
+# ============================================
+# Pact Broker Configuration
+# ============================================
+pactBroker:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: pactfoundation/pact-broker
+    tag: "2.110.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 9292
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Environment configuration
+  config:
+    # Base URL for the broker
+    baseUrl: "https://pact-broker.auth-platform.local"
+    
+    # Webhook host whitelist - Requirements 6.4
+    webhookHostWhitelist: "*.auth-platform.svc.cluster.local,github.com"
+    
+    # Enable public read access (contracts can be read without auth)
+    publicHeartbeat: true
+    
+    # Disable dangerous contract modification
+    allowDangerousContractModification: false
+    
+    # Check for potential duplicate pacticipant names
+    checkForPotentialDuplicatePacticipantNames: true
+    
+    # Create deployed/released versions when pact published
+    createDeployedVersionsForTags: true
+    
+    # Log level
+    logLevel: INFO
+    
+    # SQL log level
+    sqlLogLevel: WARN
+  
+  # Basic auth for write operations
+  auth:
+    enabled: true
+    writeUsername: pact-admin
+    # Password should be set via secret
+    writePasswordSecretName: pact-broker-auth
+    writePasswordSecretKey: password
+    
+    # Read-only access (optional)
+    readUsername: ""
+    readPassword: ""
+  
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: pact-broker.auth-platform.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: pact-broker-tls
+        hosts:
+          - pact-broker.auth-platform.local
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  
+  # Affinity
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: pact-broker
+            topologyKey: kubernetes.io/hostname
+
+# ============================================
+# Webhooks Configuration - Requirements 6.4
+# ============================================
+webhooks:
+  enabled: true
+  
+  # Webhook for provider verification on contract publish
+  providerVerification:
+    enabled: true
+    description: "Trigger provider verification when contract is published"
+    events:
+      - contract_content_changed
+    # URL template - will be filled with provider name
+    urlTemplate: "https://api.github.com/repos/your-org/${pactbroker.providerName}/dispatches"
+    headers:
+      Accept: "application/vnd.github.v3+json"
+      Authorization: "Bearer ${GITHUB_TOKEN}"
+    body: |
+      {
+        "event_type": "pact-verification",
+        "client_payload": {
+          "pact_url": "${pactbroker.pactUrl}",
+          "consumer": "${pactbroker.consumerName}",
+          "consumer_version": "${pactbroker.consumerVersionNumber}"
+        }
+      }
+  
+  # Slack notification webhook
+  slackNotification:
+    enabled: false
+    description: "Notify Slack on verification failure"
+    events:
+      - provider_verification_failed
+    url: ""  # Set via secret
+    body: |
+      {
+        "text": "❌ Contract verification failed: ${pactbroker.consumerName} -> ${pactbroker.providerName}"
+      }
+
+# ============================================
+# PostgreSQL Configuration
+# ============================================
+postgresql:
+  enabled: true
+  auth:
+    database: pact_broker
+    username: pact
+    # Password should be set via secret
+    existingSecret: pact-broker-postgresql
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# ============================================
+# ServiceMonitor for Prometheus
+# ============================================
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus

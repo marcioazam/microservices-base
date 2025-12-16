@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package auth.session;
+
+option go_package = "github.com/auth-platform/proto/session_identity";
+
+import "common.proto";
+import "token_service.proto";
+
+service SessionIdentityService {
+  rpc CreateSession(CreateSessionRequest) returns (SessionResponse);
+  rpc GetSession(GetSessionRequest) returns (SessionResponse);
+  rpc ListUserSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc TerminateSession(TerminateRequest) returns (TerminateResponse);
+  rpc AuthorizeOAuth(OAuthAuthorizeRequest) returns (OAuthAuthorizeResponse);
+  rpc ExchangeCode(CodeExchangeRequest) returns (auth.token.TokenPairResponse);
+  rpc ValidatePKCE(PKCEValidateRequest) returns (PKCEValidateResponse);
+  rpc UpdateRiskScore(RiskScoreRequest) returns (RiskScoreResponse);
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+}
+
+message CreateSessionRequest {
+  string user_id = 1;
+  string device_fingerprint = 2;
+  string ip_address = 3;
+  string user_agent = 4;
+  map<string, string> metadata = 5;
+}
+
+message SessionResponse {
+  string session_id = 1;
+  string user_id = 2;
+  string device_id = 3;
+  string ip_address = 4;
+  string user_agent = 5;
+  string device_fingerprint = 6;
+  double risk_score = 7;
+  bool mfa_verified = 8;
+  int64 created_at = 9;
+  int64 last_activity = 10;
+  int64 expires_at = 11;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message ListSessionsRequest {
+  string user_id = 1;
+  auth.common.PaginationRequest pagination = 2;
+}
+
+message ListSessionsResponse {
+  repeated SessionResponse sessions = 1;
+  auth.common.PaginationResponse pagination = 2;
+}
+
+message TerminateRequest {
+  string session_id = 1;
+  string reason = 2;
+}
+
+message TerminateResponse {
+  bool success = 1;
+}
+
+message OAuthAuthorizeRequest {
+  string client_id = 1;
+  string redirect_uri = 2;
+  string response_type = 3;
+  repeated string scopes = 4;
+  string state = 5;
+  string code_challenge = 6;
+  string code_challenge_method = 7;
+  string nonce = 8;
+}
+
+message OAuthAuthorizeResponse {
+  string authorization_code = 1;
+  string redirect_uri = 2;
+  string state = 3;
+  string error = 4;
+  string error_description = 5;
+}
+
+message CodeExchangeRequest {
+  string code = 1;
+  string client_id = 2;
+  string client_secret = 3;
+  string redirect_uri = 4;
+  string code_verifier = 5;
+  string grant_type = 6;
+}
+
+message PKCEValidateRequest {
+  string code_verifier = 1;
+  string code_challenge = 2;
+  string method = 3;
+}
+
+message PKCEValidateResponse {
+  bool valid = 1;
+  string error = 2;
+}
+
+message RiskScoreRequest {
+  string session_id = 1;
+  double score = 2;
+  repeated string risk_factors = 3;
+}
+
+message RiskScoreResponse {
+  bool step_up_required = 1;
+  repeated string required_factors = 2;
+}
+
+message AuthenticateRequest {
+  string email = 1;
+  string password = 2;
+  string device_fingerprint = 3;
+  string ip_address = 4;
+  string user_agent = 5;
+}
+
+message AuthenticateResponse {
+  bool success = 1;
+  string user_id = 2;
+  bool mfa_required = 3;
+  repeated string mfa_methods = 4;
+  string session_id = 5;
+  string error_code = 6;
+  string error_message = 7;
+}

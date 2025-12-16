@@ -1,0 +1,132 @@
+{{- if .Values.vault.enabled }}
+# Job to initialize and unseal Vault
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vault-config.fullname" . }}-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "vault-config.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: vault-config
+      containers:
+        - name: vault-init
+          image: hashicorp/vault:1.15.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              
+              echo "Waiting for Vault pod to be ready..."
+              sleep 30
+              
+              # Check if Vault is already initialized
+              INIT_STATUS=$(vault status -format=json 2>/dev/null | jq -r '.initialized' || echo "false")
+              
+              if [ "$INIT_STATUS" = "false" ]; then
+                echo "Initializing Vault..."
+                vault operator init -key-shares=5 -key-threshold=3 -format=json > /tmp/vault-init.json
+                
+                # Store root token and unseal keys in Kubernetes secret
+                ROOT_TOKEN=$(cat /tmp/vault-init.json | jq -r '.root_token')
+                UNSEAL_KEY_1=$(cat /tmp/vault-init.json | jq -r '.unseal_keys_b64[0]')
+                UNSEAL_KEY_2=$(cat /tmp/vault-init.json | jq -r '.unseal_keys_b64[1]')
+                UNSEAL_KEY_3=$(cat /tmp/vault-init.json | jq -r '.unseal_keys_b64[2]')
+                UNSEAL_KEY_4=$(cat /tmp/vault-init.json | jq -r '.unseal_keys_b64[3]')
+                UNSEAL_KEY_5=$(cat /tmp/vault-init.json | jq -r '.unseal_keys_b64[4]')
+                
+                # Create secret with init data (for dev/test only - use KMS in production)
+                kubectl create secret generic vault-init-keys \
+                  --namespace={{ .Release.Namespace }} \
+                  --from-literal=root-token="$ROOT_TOKEN" \
+                  --from-literal=unseal-key-1="$UNSEAL_KEY_1" \
+                  --from-literal=unseal-key-2="$UNSEAL_KEY_2" \
+                  --from-literal=unseal-key-3="$UNSEAL_KEY_3" \
+                  --from-literal=unseal-key-4="$UNSEAL_KEY_4" \
+                  --from-literal=unseal-key-5="$UNSEAL_KEY_5" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+                
+                # Create root token secret for config job
+                kubectl create secret generic vault-root-token \
+                  --namespace={{ .Release.Namespace }} \
+                  --from-literal=token="$ROOT_TOKEN" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+                
+                echo "Vault initialized successfully"
+                
+                # Unseal Vault
+                echo "Unsealing Vault..."
+                vault operator unseal "$UNSEAL_KEY_1"
+                vault operator unseal "$UNSEAL_KEY_2"
+                vault operator unseal "$UNSEAL_KEY_3"
+                
+                # Clean up
+                rm -f /tmp/vault-init.json
+              else
+                echo "Vault already initialized"
+                
+                # Check if sealed and unseal if needed
+                SEALED=$(vault status -format=json 2>/dev/null | jq -r '.sealed' || echo "true")
+                if [ "$SEALED" = "true" ]; then
+                  echo "Vault is sealed, attempting to unseal..."
+                  
+                  # Get unseal keys from secret
+                  UNSEAL_KEY_1=$(kubectl get secret vault-init-keys -n {{ .Release.Namespace }} -o jsonpath='{.data.unseal-key-1}' | base64 -d)
+                  UNSEAL_KEY_2=$(kubectl get secret vault-init-keys -n {{ .Release.Namespace }} -o jsonpath='{.data.unseal-key-2}' | base64 -d)
+                  UNSEAL_KEY_3=$(kubectl get secret vault-init-keys -n {{ .Release.Namespace }} -o jsonpath='{.data.unseal-key-3}' | base64 -d)
+                  
+                  vault operator unseal "$UNSEAL_KEY_1"
+                  vault operator unseal "$UNSEAL_KEY_2"
+                  vault operator unseal "$UNSEAL_KEY_3"
+                fi
+              fi
+              
+              echo "Vault initialization complete!"
+          env:
+            - name: VAULT_ADDR
+              value: {{ include "vault-config.vaultAddr" . }}
+            - name: VAULT_SKIP_VERIFY
+              value: "true"
+---
+# RBAC for init job to create secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-init-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-init-rolebinding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-config.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vault-init-role
+subjects:
+  - kind: ServiceAccount
+    name: vault-config
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,96 @@
+{{- if .Values.tokenService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: token-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: token-service
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  replicas: {{ .Values.tokenService.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: token-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: token-service
+        app.kubernetes.io/part-of: auth-platform
+      annotations:
+        # Vault Agent Injector annotations - Requirements 1.1, 1.3
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "token-service"
+        vault.hashicorp.com/agent-inject-status: "update"
+        # JWT signing key secret
+        vault.hashicorp.com/agent-inject-secret-jwt-signing-key.json: "secret/data/auth-platform/jwt/signing-key"
+        vault.hashicorp.com/agent-inject-template-jwt-signing-key.json: |
+          {{`{{- with secret "secret/data/auth-platform/jwt/signing-key" -}}`}}
+          {
+            "algorithm": "{{`{{ .Data.data.algorithm }}`}}",
+            "key_id": "{{`{{ .Data.data.key_id }}`}}",
+            "private_key": "{{`{{ .Data.data.private_key }}`}}",
+            "public_key": "{{`{{ .Data.data.public_key }}`}}"
+          }
+          {{`{{- end -}}`}}
+        # Service configuration
+        vault.hashicorp.com/agent-inject-secret-config.env: "secret/data/auth-platform/config/token-service/default"
+        vault.hashicorp.com/agent-inject-template-config.env: |
+          {{`{{- with secret "secret/data/auth-platform/config/token-service/default" -}}`}}
+          {{`{{- range $key, $value := .Data.data }}`}}
+          {{`{{ $key | toUpper }}`}}={{`{{ $value }}`}}
+          {{`{{- end }}`}}
+          {{`{{- end -}}`}}
+        # Linkerd injection - Requirements 3.2
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-cpu-request: "100m"
+        config.linkerd.io/proxy-memory-request: "20Mi"
+    spec:
+      serviceAccountName: token-service
+      containers:
+        - name: token-service
+          image: "{{ .Values.tokenService.image.repository }}:{{ .Values.tokenService.image.tag }}"
+          imagePullPolicy: {{ .Values.tokenService.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 8081
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: token-service
+            - name: VAULT_ADDR
+              value: "{{ .Values.vault.address }}"
+            - name: JWT_SIGNING_KEY_PATH
+              value: /vault/secrets/jwt-signing-key.json
+            - name: CONFIG_PATH
+              value: /vault/secrets/config.env
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.global.observability.tracing.endpoint }}"
+          resources:
+            {{- toYaml .Values.tokenService.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      {{- with .Values.tokenService.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
