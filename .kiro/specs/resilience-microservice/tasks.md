@@ -425,3 +425,56 @@ ok  github.com/auth-platform/platform/resilience-service/internal/retry         
 ok  github.com/auth-platform/platform/resilience-service/internal/server         22.814s
 ok  github.com/auth-platform/platform/resilience-service/internal/timeout        5.871s
 ```
+
+---
+
+## Fase 13: Melhorias (Extras)
+
+- [x] 19. Implement Improvements
+
+  - [x] 19.1 Add Redis integration tests
+    - Create `internal/infra/redis/client_integration_test.go`
+    - Test circuit state round-trip with real Redis
+    - Test rate limit increment and expiry
+    - Test concurrent operations
+    - Run with: `go test -tags=integration ./internal/infra/redis/...`
+
+  - [x] 19.2 Implement Prometheus metrics
+    - Create `internal/infra/metrics/prometheus.go`
+    - Create `internal/infra/metrics/handler.go`
+    - Metrics for: circuit breaker, retry, rate limit, bulkhead, timeout, health
+    - HTTP handler for `/metrics` endpoint
+
+  - [x] 19.3 Add benchmarks for critical components
+    - `internal/circuitbreaker/breaker_bench_test.go`
+    - `internal/ratelimit/ratelimit_bench_test.go`
+    - `internal/bulkhead/bulkhead_bench_test.go`
+    - `internal/retry/handler_bench_test.go`
+    - Run with: `go test -bench=. ./internal/...`
+
+  - [x] 19.4 Add Prometheus latency histograms
+    - Create `internal/infra/metrics/histogram.go`
+    - Implement histogram with configurable buckets
+    - Support p50, p95, p99 percentile calculations
+    - Add histograms for: circuit breaker, retry, rate limit, bulkhead, operation latency
+    - Export in Prometheus histogram format
+
+### Benchmark Results (Sample)
+
+```
+BenchmarkStateSerialization_Marshal-8              32180              3370 ns/op
+BenchmarkStateSerialization_Unmarshal-8            10000             23256 ns/op
+BenchmarkTokenBucket_Allow-8                      794630               159.3 ns/op
+BenchmarkTokenBucket_Allow_Limited-8              964009               146.3 ns/op
+```
+
+### Latency Histogram Buckets
+
+Default buckets (in seconds): `0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0`
+
+Prometheus metrics exported:
+- `resilience_circuit_breaker_latency_seconds_bucket`
+- `resilience_retry_latency_seconds_bucket`
+- `resilience_rate_limit_latency_seconds_bucket`
+- `resilience_bulkhead_latency_seconds_bucket`
+- `resilience_operation_latency_seconds_bucket`

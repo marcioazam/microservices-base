@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/auth-platform/libs/go/resilience"
 	"github.com/auth-platform/platform/resilience-service/internal/domain"
 )
 
@@ -25,7 +26,7 @@ func NewLogger(logger *slog.Logger) *Logger {
 func (l *Logger) Log(event domain.AuditEvent) {
 	// Ensure required fields
 	if event.ID == "" {
-		event.ID = generateEventID()
+		event.ID = resilience.GenerateEventID()
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
@@ -48,7 +49,7 @@ func (l *Logger) Log(event domain.AuditEvent) {
 func (l *Logger) LogJSON(event domain.AuditEvent) error {
 	// Ensure required fields
 	if event.ID == "" {
-		event.ID = generateEventID()
+		event.ID = resilience.GenerateEventID()
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
@@ -89,9 +90,4 @@ func HasRequiredFields(event domain.AuditEvent) bool {
 		event.Type != "" &&
 		!event.Timestamp.IsZero() &&
 		event.CorrelationID != ""
-}
-
-// generateEventID generates a unique event ID.
-func generateEventID() string {
-	return time.Now().Format("20060102150405.000000000")
 }

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/domain"
+	"github.com/auth-platform/libs/go/resilience"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -64,7 +64,7 @@ func (c *Client) Close() error {
 }
 
 // SaveCircuitState saves circuit breaker state.
-func (c *Client) SaveCircuitState(ctx context.Context, state domain.CircuitBreakerState) error {
+func (c *Client) SaveCircuitState(ctx context.Context, state resilience.CircuitBreakerState) error {
 	key := c.prefix + "circuit:" + state.ServiceName
 
 	data, err := json.Marshal(state)
@@ -76,7 +76,7 @@ func (c *Client) SaveCircuitState(ctx context.Context, state domain.CircuitBreak
 }
 
 // LoadCircuitState loads circuit breaker state.
-func (c *Client) LoadCircuitState(ctx context.Context, serviceName string) (*domain.CircuitBreakerState, error) {
+func (c *Client) LoadCircuitState(ctx context.Context, serviceName string) (*resilience.CircuitBreakerState, error) {
 	key := c.prefix + "circuit:" + serviceName
 
 	data, err := c.rdb.Get(ctx, key).Bytes()
@@ -87,7 +87,7 @@ func (c *Client) LoadCircuitState(ctx context.Context, serviceName string) (*dom
 		return nil, fmt.Errorf("get circuit state: %w", err)
 	}
 
-	var state domain.CircuitBreakerState
+	var state resilience.CircuitBreakerState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, fmt.Errorf("unmarshal circuit state: %w", err)
 	}
