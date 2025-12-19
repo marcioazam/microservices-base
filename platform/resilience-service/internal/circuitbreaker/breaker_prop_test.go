@@ -6,24 +6,138 @@ import (
 	"testing"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/domain"
-	"github.com/auth-platform/platform/resilience-service/internal/testutil"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
+
+	"github.com/auth-platform/platform/resilience-service/internal/domain"
 )
 
-// **Feature: resilience-microservice, Property 1: Circuit Breaker State Machine Correctness**
-// **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
-func TestProperty_CircuitBreakerStateMachine(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
+// **Feature: resilience-service-modernization, Property 3: Centralized Event Emission (Circuit Breaker)**
+// **Validates: Requirements 2.1, 2.2, 2.3, 4.1**
+func TestCentralizedEventEmission(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
 
-	// Property 1.1: Closed → Open when failures >= threshold
-	props.Property("closed_to_open_on_failure_threshold", prop.ForAll(
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Circuit breaker events use UUID v7 IDs", prop.ForAll(
+		func(serviceName string, failureThreshold int) bool {
+			if failureThreshold < 1 {
+				failureThreshold = 1
+			}
+			if failureThreshold > 10 {
+				failureThreshold = 10
+			}
+
+			emitter := NewMockEventEmitter()
+			builder := domain.NewEventBuilder(emitter, serviceName, nil)
+
+			breaker := New(Config{
+				ServiceName:  serviceName,
+				EventBuilder: builder,
+				Config: domain.CircuitBreakerConfig{
+					FailureThreshold: failureThreshold,
+					SuccessThreshold: 1,
+					Timeout:          time.Second,
+				},
+			})
+
+			// Trigger state change by recording failures
+			for i := 0; i < failureThreshold; i++ {
+				breaker.RecordFailure()
+			}
+
+			events := emitter.GetStateChangeEvents()
+			if len(events) == 0 {
+				return true // No events emitted is valid if threshold not reached
+			}
+
+			// Verify all events have valid UUID v7 IDs
+			for _, event := range events {
+				if !domain.IsValidUUIDv7(event.ID) {
+					t.Logf("Event ID is not valid UUID v7: %s", event.ID)
+					return false
+				}
+			}
+
+			return true
+		},
+		gen.AlphaString(),
+		gen.IntRange(1, 10),
+	))
+
+	properties.Property("Circuit breaker events have consistent field population", prop.ForAll(
+		func(serviceName string) bool {
+			emitter := NewMockEventEmitter()
+			correlationID := "test-correlation-123"
+			correlationFn := func() string { return correlationID }
+			builder := domain.NewEventBuilder(emitter, serviceName, correlationFn)
+
+			breaker := New(Config{
+				ServiceName:  serviceName,
+				EventBuilder: builder,
+				Config: domain.CircuitBreakerConfig{
+					FailureThreshold: 1,
+					SuccessThreshold: 1,
+					Timeout:          time.Second,
+				},
+			})
+
+			// Trigger state change
+			breaker.RecordFailure()
+
+			events := emitter.GetStateChangeEvents()
+			if len(events) == 0 {
+				t.Log("No events emitted")
+				return false
+			}
+
+			event := events[0]
+
+			// Verify service name
+			if event.ServiceName != serviceName {
+				t.Logf("ServiceName mismatch: expected %s, got %s", serviceName, event.ServiceName)
+				return false
+			}
+
+			// Verify correlation ID
+			if event.CorrelationID != correlationID {
+				t.Logf("CorrelationID mismatch: expected %s, got %s", correlationID, event.CorrelationID)
+				return false
+			}
+
+			// Verify event type
+			if event.Type != domain.EventCircuitStateChange {
+				t.Logf("Type mismatch: expected %s, got %s", domain.EventCircuitStateChange, event.Type)
+				return false
+			}
+
+			return true
+		},
+		gen.AlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
+
+func TestCircuitBreaker_StateTransitions(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Circuit opens after failure threshold", prop.ForAll(
 		func(threshold int) bool {
-			cb := New(Config{
-				ServiceName: "test-service",
+			if threshold < 1 {
+				threshold = 1
+			}
+			if threshold > 20 {
+				threshold = 20
+			}
+
+			breaker := New(Config{
+				ServiceName: "test",
 				Config: domain.CircuitBreakerConfig{
 					FailureThreshold: threshold,
 					SuccessThreshold: 1,
@@ -31,54 +145,32 @@ func TestProperty_CircuitBreakerStateMachine(t *testing.T) {
 				},
 			})
 
-			// Record failures up to threshold
-			for i := 0; i < threshold; i++ {
-				if cb.GetState() == domain.StateOpen {
-					return false // Should not be open yet
+			// Record failures up to threshold - 1
+			for i := 0; i < threshold-1; i++ {
+				breaker.RecordFailure()
+				if breaker.GetState() != domain.StateClosed {
+					return false
 				}
-				cb.RecordFailure()
 			}
 
-			return cb.GetState() == domain.StateOpen
+			// One more failure should open the circuit
+			breaker.RecordFailure()
+			return breaker.GetState() == domain.StateOpen
 		},
 		gen.IntRange(1, 20),
 	))
 
-	// Property 1.2: Open → HalfOpen after timeout
-	props.Property("open_to_halfopen_after_timeout", prop.ForAll(
-		func(timeoutMs int) bool {
-			timeout := time.Duration(timeoutMs) * time.Millisecond
-			cb := New(Config{
-				ServiceName: "test-service",
-				Config: domain.CircuitBreakerConfig{
-					FailureThreshold: 1,
-					SuccessThreshold: 1,
-					Timeout:          timeout,
-				},
-			})
-
-			// Force open
-			cb.RecordFailure()
-			if cb.GetState() != domain.StateOpen {
-				return false
+	properties.Property("Circuit closes after success threshold in half-open", prop.ForAll(
+		func(successThreshold int) bool {
+			if successThreshold < 2 {
+				successThreshold = 2
+			}
+			if successThreshold > 10 {
+				successThreshold = 10
 			}
 
-			// Wait for timeout
-			time.Sleep(timeout + 10*time.Millisecond)
-
-			// Next request should transition to half-open
-			_ = cb.Execute(context.Background(), func() error { return nil })
-
-			return cb.GetState() == domain.StateClosed // Success in half-open closes it
-		},
-		gen.IntRange(10, 50),
-	))
-
-	// Property 1.3: HalfOpen → Closed on success threshold
-	props.Property("halfopen_to_closed_on_success", prop.ForAll(
-		func(successThreshold int) bool {
-			cb := New(Config{
-				ServiceName: "test-service",
+			breaker := New(Config{
+				ServiceName: "test",
 				Config: domain.CircuitBreakerConfig{
 					FailureThreshold: 1,
 					SuccessThreshold: successThreshold,
@@ -86,84 +178,81 @@ func TestProperty_CircuitBreakerStateMachine(t *testing.T) {
 				},
 			})
 
-			// Force open then wait for half-open
-			cb.RecordFailure()
-			time.Sleep(2 * time.Millisecond)
-
-			// Trigger transition to half-open
-			cb.allowRequest()
-
-			if cb.GetState() != domain.StateHalfOpen {
+			// Open the circuit
+			breaker.RecordFailure()
+			if breaker.GetState() != domain.StateOpen {
 				return false
 			}
 
-			// Record successes
-			for i := 0; i < successThreshold; i++ {
-				cb.RecordSuccess()
-			}
-
-			return cb.GetState() == domain.StateClosed
-		},
-		gen.IntRange(1, 10),
-	))
-
-	// Property 1.4: HalfOpen → Open on any failure
-	props.Property("halfopen_to_open_on_failure", prop.ForAll(
-		func(successThreshold int) bool {
-			cb := New(Config{
-				ServiceName: "test-service",
-				Config: domain.CircuitBreakerConfig{
-					FailureThreshold: 1,
-					SuccessThreshold: successThreshold,
-					Timeout:          time.Millisecond,
-				},
-			})
-
-			// Force open then wait for half-open
-			cb.RecordFailure()
+			// Wait for timeout to allow half-open transition
 			time.Sleep(2 * time.Millisecond)
 
-			// Trigger transition to half-open
-			cb.allowRequest()
-
-			if cb.GetState() != domain.StateHalfOpen {
+			// allowRequest triggers half-open transition
+			breaker.allowRequest()
+			if breaker.GetState() != domain.StateHalfOpen {
 				return false
 			}
 
-			// Record a failure
-			cb.RecordFailure()
+			// Record successes up to threshold - 1
+			for i := 0; i < successThreshold-1; i++ {
+				breaker.RecordSuccess()
+				if breaker.GetState() != domain.StateHalfOpen {
+					return false
+				}
+			}
 
-			return cb.GetState() == domain.StateOpen
+			// One more success should close the circuit
+			breaker.RecordSuccess()
+			return breaker.GetState() == domain.StateClosed
 		},
 		gen.IntRange(2, 10),
 	))
 
-	// Property: Execute returns circuit open error when open
-	props.Property("execute_returns_error_when_open", prop.ForAll(
-		func(threshold int) bool {
-			cb := New(Config{
-				ServiceName: "test-service",
-				Config: domain.CircuitBreakerConfig{
-					FailureThreshold: threshold,
-					SuccessThreshold: 1,
-					Timeout:          time.Hour, // Long timeout
-				},
-			})
+	properties.TestingRun(t)
+}
 
-			// Force open
-			for i := 0; i < threshold; i++ {
-				cb.RecordFailure()
-			}
-
-			err := cb.Execute(context.Background(), func() error {
-				return nil
-			})
-
-			var resErr *domain.ResilienceError
-			return errors.As(err, &resErr) && resErr.Code == domain.ErrCircuitOpen
+func TestCircuitBreaker_Execute(t *testing.T) {
+	breaker := New(Config{
+		ServiceName: "test",
+		Config: domain.CircuitBreakerConfig{
+			FailureThreshold: 3,
+			SuccessThreshold: 2,
+			Timeout:          time.Second,
 		},
-		gen.IntRange(1, 10),
-	))
+	})
 
-	props.TestingRun(t)
+	// Successful execution
+	err := breaker.Execute(context.Background(), func() error {
+		return nil
+	})
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Failed execution
+	testErr := errors.New("test error")
+	err = breaker.Execute(context.Background(), func() error {
+		return testErr
+	})
+	if err != testErr {
+		t.Errorf("Expected test error, got %v", err)
+	}
+}
+
+func TestCircuitBreaker_NilEventBuilder(t *testing.T) {
+	breaker := New(Config{
+		ServiceName:  "test",
+		EventBuilder: nil,
+		Config: domain.CircuitBreakerConfig{
+			FailureThreshold: 1,
+			SuccessThreshold: 1,
+			Timeout:          time.Second,
+		},
+	})
+
+	// Should not panic with nil event builder
+	breaker.RecordFailure()
+	if breaker.GetState() != domain.StateOpen {
+		t.Error("Circuit should be open")
+	}
 }

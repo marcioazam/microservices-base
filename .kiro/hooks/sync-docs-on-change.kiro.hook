@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "name": "Sync Documentation on Source Changes",
+  "description": "Watches source files (Go, Rust, Elixir, TypeScript, Python, Proto) for changes and prompts the agent to update relevant documentation in the /docs folder or README files.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.go",
+      "*.rs",
+      "*.ex",
+      "*.exs",
+      "*.ts",
+      "*.tsx",
+      "*.py",
+      "*.proto"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A source file was just modified. Review the changes and determine if any documentation needs to be updated. Check the /docs folder and relevant README.md files (including the root README.md and any service/library-specific READMEs). If the change affects APIs, architecture, configuration, or usage patterns, update the appropriate documentation to keep it in sync with the code changes."
+  }
+}

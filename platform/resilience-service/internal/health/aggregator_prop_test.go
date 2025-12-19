@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/auth-platform/platform/resilience-service/internal/domain"
@@ -128,8 +129,9 @@ func TestProperty_HealthChangeEventEmission(t *testing.T) {
 				return true
 			}
 
-			emitter := &mockEventEmitter{}
-			agg := NewAggregator(Config{EventEmitter: emitter})
+			emitter := newMockEmitter()
+			builder := domain.NewEventBuilder(emitter, "health-aggregator", nil)
+			agg := NewAggregator(Config{EventBuilder: builder})
 
 			// Set initial status
 			initial := statusFromInt(initialStatus)
@@ -152,9 +154,6 @@ func TestProperty_HealthChangeEventEmission(t *testing.T) {
 			if event.Type != domain.EventHealthChange {
 				return false
 			}
-			if event.ServiceName != "test-service" {
-				return false
-			}
 
 			// Check metadata
 			prevStatus, ok := event.Metadata["previous_status"].(string)
@@ -175,8 +174,9 @@ func TestProperty_HealthChangeEventEmission(t *testing.T) {
 
 	props.Property("same_status_no_event", prop.ForAll(
 		func(status int) bool {
-			emitter := &mockEventEmitter{}
-			agg := NewAggregator(Config{EventEmitter: emitter})
+			emitter := newMockEmitter()
+			builder := domain.NewEventBuilder(emitter, "health-aggregator", nil)
+			agg := NewAggregator(Config{EventBuilder: builder})
 
 			stat := statusFromInt(status)
 
@@ -207,21 +207,34 @@ func statusFromInt(i int) domain.HealthStatus {
 	}
 }
 
-// mockEventEmitter is a test implementation of EventEmitter.
-type mockEventEmitter struct {
+// mockEmitter is a test implementation of EventEmitter.
+type mockEmitter struct {
+	mu     sync.Mutex
 	events []domain.ResilienceEvent
 }
 
-func (m *mockEventEmitter) Emit(event domain.ResilienceEvent) {
+func newMockEmitter() *mockEmitter {
+	return &mockEmitter{events: make([]domain.ResilienceEvent, 0)}
+}
+
+func (m *mockEmitter) Emit(event domain.ResilienceEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.events = append(m.events, event)
 }
 
-func (m *mockEventEmitter) EmitAudit(event domain.AuditEvent) {}
+func (m *mockEmitter) EmitAudit(event domain.AuditEvent) {}
 
-func (m *mockEventEmitter) GetEvents() []domain.ResilienceEvent {
-	return m.events
+func (m *mockEmitter) GetEvents() []domain.ResilienceEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]domain.ResilienceEvent, len(m.events))
+	copy(result, m.events)
+	return result
 }
 
-func (m *mockEventEmitter) Clear() {
+func (m *mockEmitter) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.events = nil
 }

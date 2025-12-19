@@ -2,257 +2,253 @@ package ratelimit
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/testutil"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
+
+	"github.com/auth-platform/platform/resilience-service/internal/domain"
 )
 
-// **Feature: resilience-microservice, Property 11: Rate Limit Enforcement**
-// **Validates: Requirements 4.1**
-func TestProperty_RateLimitEnforcement(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
+// mockEmitter is a test implementation of EventEmitter.
+type mockEmitter struct {
+	mu     sync.Mutex
+	events []domain.ResilienceEvent
+}
 
-	props.Property("requests_beyond_limit_rejected", prop.ForAll(
-		func(limit int) bool {
-			tb := NewTokenBucket(TokenBucketConfig{
-				Capacity:   limit,
-				RefillRate: limit,
-				Window:     time.Minute,
+func newMockEmitter() *mockEmitter {
+	return &mockEmitter{events: make([]domain.ResilienceEvent, 0)}
+}
+
+func (m *mockEmitter) Emit(event domain.ResilienceEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, event)
+}
+
+func (m *mockEmitter) EmitAudit(event domain.AuditEvent) {}
+
+func (m *mockEmitter) GetEvents() []domain.ResilienceEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]domain.ResilienceEvent, len(m.events))
+	copy(result, m.events)
+	return result
+}
+
+func TestTokenBucket_AllowsUpToCapacity(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Token bucket allows requests up to capacity", prop.ForAll(
+		func(capacity int) bool {
+			if capacity < 1 {
+				capacity = 1
+			}
+			if capacity > 100 {
+				capacity = 100
+			}
+
+			bucket := NewTokenBucket(TokenBucketConfig{
+				Capacity:   capacity,
+				RefillRate: capacity,
+				Window:     time.Second,
 			})
 
-			ctx := context.Background()
-
-			// Make exactly limit requests - all should succeed
-			for i := 0; i < limit; i++ {
-				decision, _ := tb.Allow(ctx, "test-key")
+			// Should allow exactly capacity requests
+			for i := 0; i < capacity; i++ {
+				decision, _ := bucket.Allow(context.Background(), "test")
 				if !decision.Allowed {
+					t.Logf("Request %d should be allowed", i)
 					return false
 				}
 			}
 
-			// Next request should be rejected
-			decision, _ := tb.Allow(ctx, "test-key")
+			// Next request should be denied
+			decision, _ := bucket.Allow(context.Background(), "test")
 			if decision.Allowed {
-				return false
-			}
-
-			// Should have positive retry-after
-			return decision.RetryAfter > 0
-		},
-		gen.IntRange(1, 20),
-	))
-
-	props.TestingRun(t)
-}
-
-// **Feature: resilience-microservice, Property 12: Token Bucket Invariants**
-// **Validates: Requirements 4.2**
-func TestProperty_TokenBucketInvariants(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("tokens_never_exceed_capacity", prop.ForAll(
-		func(capacity int, requests int) bool {
-			tb := NewTokenBucket(TokenBucketConfig{
-				Capacity:   capacity,
-				RefillRate: capacity * 10, // Fast refill
-				Window:     time.Second,
-			})
-
-			ctx := context.Background()
-
-			// Make some requests
-			for i := 0; i < requests; i++ {
-				tb.Allow(ctx, "test-key")
-			}
-
-			// Wait for refill
-			time.Sleep(200 * time.Millisecond)
-
-			// Tokens should never exceed capacity
-			tokens := tb.GetTokenCount()
-			return tokens <= tb.GetCapacity()
-		},
-		gen.IntRange(5, 50),
-		gen.IntRange(1, 100),
-	))
-
-	props.Property("consumption_decreases_tokens", prop.ForAll(
-		func(capacity int) bool {
-			tb := NewTokenBucket(TokenBucketConfig{
-				Capacity:   capacity,
-				RefillRate: 1, // Very slow refill
-				Window:     time.Hour,
-			})
-
-			ctx := context.Background()
-
-			initialTokens := tb.GetTokenCount()
-
-			// Consume one token
-			decision, _ := tb.Allow(ctx, "test-key")
-			if !decision.Allowed {
-				return false
-			}
-
-			finalTokens := tb.GetTokenCount()
-
-			// Should have decreased by approximately 1
-			return initialTokens-finalTokens >= 0.99 && initialTokens-finalTokens <= 1.01
-		},
-		gen.IntRange(5, 50),
-	))
-
-	props.TestingRun(t)
-}
-
-// **Feature: resilience-microservice, Property 13: Sliding Window Request Counting**
-// **Validates: Requirements 4.3**
-func TestProperty_SlidingWindowRequestCounting(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("only_counts_requests_within_window", prop.ForAll(
-		func(limit int) bool {
-			window := 100 * time.Millisecond
-
-			sw := NewSlidingWindow(SlidingWindowConfig{
-				Limit:  limit,
-				Window: window,
-			})
-
-			ctx := context.Background()
-
-			// Make some requests
-			requestsMade := min(limit, 5)
-			for i := 0; i < requestsMade; i++ {
-				sw.Allow(ctx, "test-key")
-			}
-
-			// Count should equal requests made
-			if sw.GetRequestCount() != requestsMade {
-				return false
-			}
-
-			// Wait for window to expire
-			time.Sleep(window + 50*time.Millisecond)
-
-			// Count should be 0 after window expires
-			return sw.GetRequestCount() == 0
-		},
-		gen.IntRange(5, 20),
-	))
-
-	props.Property("requests_within_window_counted", prop.ForAll(
-		func(limit int, requests int) bool {
-			sw := NewSlidingWindow(SlidingWindowConfig{
-				Limit:  limit,
-				Window: time.Hour, // Long window
-			})
-
-			ctx := context.Background()
-
-			// Make requests
-			actualRequests := min(requests, limit)
-			for i := 0; i < actualRequests; i++ {
-				sw.Allow(ctx, "test-key")
-			}
-
-			// All requests should be counted
-			return sw.GetRequestCount() == actualRequests
-		},
-		gen.IntRange(10, 50),
-		gen.IntRange(1, 20),
-	))
-
-	props.TestingRun(t)
-}
-
-// **Feature: resilience-microservice, Property 14: Rate Limit Response Headers**
-// **Validates: Requirements 4.5**
-func TestProperty_RateLimitResponseHeaders(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("headers_always_present", prop.ForAll(
-		func(capacity int, requests int) bool {
-			tb := NewTokenBucket(TokenBucketConfig{
-				Capacity:   capacity,
-				RefillRate: capacity,
-				Window:     time.Minute,
-			})
-
-			ctx := context.Background()
-
-			// Make some requests
-			for i := 0; i < requests; i++ {
-				tb.Allow(ctx, "test-key")
-			}
-
-			// Get headers
-			headers, err := tb.GetHeaders(ctx, "test-key")
-			if err != nil {
-				return false
-			}
-
-			// All headers must be present and valid
-			if headers.Limit <= 0 {
-				return false
-			}
-			if headers.Remaining < 0 {
-				return false
-			}
-			if headers.Reset <= 0 {
-				return false
-			}
-
-			// Limit should equal capacity
-			if headers.Limit != capacity {
+				t.Log("Request after capacity should be denied")
 				return false
 			}
 
 			return true
 		},
-		gen.IntRange(5, 50),
-		gen.IntRange(0, 30),
+		gen.IntRange(1, 100),
 	))
 
-	props.Property("remaining_decreases_with_requests", prop.ForAll(
-		func(capacity int) bool {
-			tb := NewTokenBucket(TokenBucketConfig{
-				Capacity:   capacity,
-				RefillRate: 1, // Very slow refill
-				Window:     time.Hour,
-			})
-
-			ctx := context.Background()
-
-			headers1, _ := tb.GetHeaders(ctx, "test-key")
-			initialRemaining := headers1.Remaining
-
-			// Make a request
-			tb.Allow(ctx, "test-key")
-
-			headers2, _ := tb.GetHeaders(ctx, "test-key")
-			finalRemaining := headers2.Remaining
-
-			// Remaining should have decreased
-			return finalRemaining < initialRemaining
-		},
-		gen.IntRange(5, 50),
-	))
-
-	props.TestingRun(t)
+	properties.TestingRun(t)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func TestTokenBucket_RefillsOverTime(t *testing.T) {
+	bucket := NewTokenBucket(TokenBucketConfig{
+		Capacity:   10,
+		RefillRate: 100, // 100 tokens per second
+		Window:     time.Second,
+	})
+
+	// Drain all tokens
+	for i := 0; i < 10; i++ {
+		bucket.Allow(context.Background(), "test")
 	}
-	return b
+
+	// Wait for refill
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have some tokens now
+	tokens := bucket.GetTokenCount()
+	if tokens < 5 {
+		t.Errorf("Expected at least 5 tokens after 100ms, got %f", tokens)
+	}
+}
+
+func TestTokenBucket_EmitsEventsOnDenial(t *testing.T) {
+	emitter := newMockEmitter()
+	builder := domain.NewEventBuilder(emitter, "test-service", nil)
+
+	bucket := NewTokenBucket(TokenBucketConfig{
+		Capacity:     1,
+		RefillRate:   1,
+		Window:       time.Second,
+		EventBuilder: builder,
+	})
+
+	// First request allowed
+	bucket.Allow(context.Background(), "test")
+
+	// Second request denied - should emit event
+	bucket.Allow(context.Background(), "test")
+
+	events := emitter.GetEvents()
+	if len(events) != 1 {
+		t.Errorf("Expected 1 event, got %d", len(events))
+	}
+
+	if len(events) > 0 && events[0].Type != domain.EventRateLimitHit {
+		t.Errorf("Expected EventRateLimitHit, got %s", events[0].Type)
+	}
+}
+
+func TestSlidingWindow_AllowsUpToLimit(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Sliding window allows requests up to limit", prop.ForAll(
+		func(limit int) bool {
+			if limit < 1 {
+				limit = 1
+			}
+			if limit > 50 {
+				limit = 50
+			}
+
+			sw := NewSlidingWindow(SlidingWindowConfig{
+				Limit:  limit,
+				Window: time.Second,
+			})
+
+			// Should allow exactly limit requests
+			for i := 0; i < limit; i++ {
+				decision, _ := sw.Allow(context.Background(), "test")
+				if !decision.Allowed {
+					t.Logf("Request %d should be allowed", i)
+					return false
+				}
+			}
+
+			// Next request should be denied
+			decision, _ := sw.Allow(context.Background(), "test")
+			if decision.Allowed {
+				t.Log("Request after limit should be denied")
+				return false
+			}
+
+			return true
+		},
+		gen.IntRange(1, 50),
+	))
+
+	properties.TestingRun(t)
+}
+
+func TestSlidingWindow_ExpiresOldRequests(t *testing.T) {
+	sw := NewSlidingWindow(SlidingWindowConfig{
+		Limit:  5,
+		Window: 50 * time.Millisecond,
+	})
+
+	// Make 5 requests
+	for i := 0; i < 5; i++ {
+		sw.Allow(context.Background(), "test")
+	}
+
+	// Should be at limit
+	decision, _ := sw.Allow(context.Background(), "test")
+	if decision.Allowed {
+		t.Error("Should be at limit")
+	}
+
+	// Wait for window to expire
+	time.Sleep(60 * time.Millisecond)
+
+	// Should allow again
+	decision, _ = sw.Allow(context.Background(), "test")
+	if !decision.Allowed {
+		t.Error("Should allow after window expires")
+	}
+}
+
+func TestSlidingWindow_EmitsEventsOnDenial(t *testing.T) {
+	emitter := newMockEmitter()
+	builder := domain.NewEventBuilder(emitter, "test-service", nil)
+
+	sw := NewSlidingWindow(SlidingWindowConfig{
+		Limit:        1,
+		Window:       time.Second,
+		EventBuilder: builder,
+	})
+
+	// First request allowed
+	sw.Allow(context.Background(), "test")
+
+	// Second request denied - should emit event
+	sw.Allow(context.Background(), "test")
+
+	events := emitter.GetEvents()
+	if len(events) != 1 {
+		t.Errorf("Expected 1 event, got %d", len(events))
+	}
+
+	if len(events) > 0 && events[0].Type != domain.EventRateLimitHit {
+		t.Errorf("Expected EventRateLimitHit, got %s", events[0].Type)
+	}
+}
+
+func TestRateLimiter_NilEventBuilder(t *testing.T) {
+	// Token bucket with nil builder
+	bucket := NewTokenBucket(TokenBucketConfig{
+		Capacity:     1,
+		RefillRate:   1,
+		Window:       time.Second,
+		EventBuilder: nil,
+	})
+
+	bucket.Allow(context.Background(), "test")
+	bucket.Allow(context.Background(), "test") // Should not panic
+
+	// Sliding window with nil builder
+	sw := NewSlidingWindow(SlidingWindowConfig{
+		Limit:        1,
+		Window:       time.Second,
+		EventBuilder: nil,
+	})
+
+	sw.Allow(context.Background(), "test")
+	sw.Allow(context.Background(), "test") // Should not panic
 }

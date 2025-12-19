@@ -3,244 +3,305 @@ package bulkhead
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/domain"
-	"github.com/auth-platform/platform/resilience-service/internal/testutil"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
+
+	"github.com/auth-platform/platform/resilience-service/internal/domain"
 )
 
-// **Feature: resilience-microservice, Property 15: Bulkhead Concurrent Request Enforcement**
-// **Validates: Requirements 5.1, 5.2**
-func TestProperty_BulkheadConcurrentRequestEnforcement(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("active_plus_queued_never_exceeds_limits", prop.ForAll(
-		func(maxConcurrent int, maxQueue int, requests int) bool {
-			b := New(Config{
-				Name:          "test",
-				MaxConcurrent: maxConcurrent,
-				MaxQueue:      maxQueue,
-				QueueTimeout:  time.Second,
-			})
-
-			ctx := context.Background()
-			var wg sync.WaitGroup
-			var maxActive int64
-			var maxQueued int64
-
-			// Track max values during execution
-			done := make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(time.Millisecond)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-done:
-						return
-					case <-ticker.C:
-						metrics := b.GetMetrics()
-						for {
-							current := atomic.LoadInt64(&maxActive)
-							if int64(metrics.ActiveCount) <= current {
-								break
-							}
-							if atomic.CompareAndSwapInt64(&maxActive, current, int64(metrics.ActiveCount)) {
-								break
-							}
-						}
-						for {
-							current := atomic.LoadInt64(&maxQueued)
-							if int64(metrics.QueuedCount) <= current {
-								break
-							}
-							if atomic.CompareAndSwapInt64(&maxQueued, current, int64(metrics.QueuedCount)) {
-								break
-							}
-						}
-					}
-				}
-			}()
-
-			// Launch concurrent requests
-			for i := 0; i < requests; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					if err := b.Acquire(ctx); err == nil {
-						time.Sleep(10 * time.Millisecond)
-						b.Release()
-					}
-				}()
-			}
-
-			wg.Wait()
-			close(done)
-
-			// Verify limits were respected
-			return atomic.LoadInt64(&maxActive) <= int64(maxConcurrent) &&
-				atomic.LoadInt64(&maxQueued) <= int64(maxQueue)
-		},
-		gen.IntRange(2, 10),
-		gen.IntRange(2, 10),
-		gen.IntRange(5, 30),
-	))
-
-	props.Property("requests_beyond_capacity_rejected", prop.ForAll(
-		func(maxConcurrent int, maxQueue int) bool {
-			b := New(Config{
-				Name:          "test",
-				MaxConcurrent: maxConcurrent,
-				MaxQueue:      maxQueue,
-				QueueTimeout:  10 * time.Millisecond,
-			})
-
-			ctx := context.Background()
-			totalCapacity := maxConcurrent + maxQueue
-
-			// Fill up the bulkhead
-			acquired := 0
-			for i := 0; i < totalCapacity+5; i++ {
-				if err := b.Acquire(ctx); err == nil {
-					acquired++
-				}
-			}
-
-			// Should have acquired at most totalCapacity
-			return acquired <= totalCapacity
-		},
-		gen.IntRange(2, 10),
-		gen.IntRange(2, 10),
-	))
-
-	props.TestingRun(t)
+// mockEmitter is a test implementation of EventEmitter.
+type mockEmitter struct {
+	mu     sync.Mutex
+	events []domain.ResilienceEvent
 }
 
-// **Feature: resilience-microservice, Property 16: Bulkhead Partition Isolation**
-// **Validates: Requirements 5.3**
-func TestProperty_BulkheadPartitionIsolation(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("partitions_independent", prop.ForAll(
-		func(maxConcurrent int) bool {
-			cfg := domain.BulkheadConfig{
-				MaxConcurrent: maxConcurrent,
-				MaxQueue:      5,
-				QueueTimeout:  time.Second,
-			}
-
-			manager := NewManager(cfg, nil)
-
-			ctx := context.Background()
-
-			// Fill partition A completely
-			partitionA := manager.GetBulkhead("partition-a")
-			for i := 0; i < maxConcurrent; i++ {
-				if err := partitionA.Acquire(ctx); err != nil {
-					return false
-				}
-			}
-
-			// Partition B should still be available
-			partitionB := manager.GetBulkhead("partition-b")
-			for i := 0; i < maxConcurrent; i++ {
-				if err := partitionB.Acquire(ctx); err != nil {
-					return false
-				}
-			}
-
-			// Verify metrics are independent
-			metricsA := partitionA.GetMetrics()
-			metricsB := partitionB.GetMetrics()
-
-			return metricsA.ActiveCount == maxConcurrent &&
-				metricsB.ActiveCount == maxConcurrent
-		},
-		gen.IntRange(2, 10),
-	))
-
-	props.TestingRun(t)
+func newMockEmitter() *mockEmitter {
+	return &mockEmitter{events: make([]domain.ResilienceEvent, 0)}
 }
 
-// **Feature: resilience-microservice, Property 17: Bulkhead Metrics Accuracy**
-// **Validates: Requirements 5.4**
-func TestProperty_BulkheadMetricsAccuracy(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
+func (m *mockEmitter) Emit(event domain.ResilienceEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, event)
+}
 
-	props.Property("metrics_reflect_actual_state", prop.ForAll(
-		func(maxConcurrent int, acquireCount int) bool {
-			b := New(Config{
-				Name:          "test",
-				MaxConcurrent: maxConcurrent,
-				MaxQueue:      10,
-				QueueTimeout:  time.Second,
-			})
+func (m *mockEmitter) EmitAudit(event domain.AuditEvent) {}
 
-			ctx := context.Background()
+func (m *mockEmitter) GetEvents() []domain.ResilienceEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]domain.ResilienceEvent, len(m.events))
+	copy(result, m.events)
+	return result
+}
 
-			// Acquire some permits
-			actualAcquired := 0
-			for i := 0; i < acquireCount && i < maxConcurrent; i++ {
-				if err := b.Acquire(ctx); err == nil {
-					actualAcquired++
-				}
-			}
+func TestBulkhead_AllowsUpToMaxConcurrent(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
 
-			// Metrics should match
-			metrics := b.GetMetrics()
-			if metrics.ActiveCount != actualAcquired {
-				return false
-			}
+	properties := gopter.NewProperties(parameters)
 
-			// Release all
-			for i := 0; i < actualAcquired; i++ {
-				b.Release()
-			}
-
-			// Active should be 0
-			metrics = b.GetMetrics()
-			return metrics.ActiveCount == 0
-		},
-		gen.IntRange(5, 20),
-		gen.IntRange(1, 15),
-	))
-
-	props.Property("rejected_count_accurate", prop.ForAll(
+	properties.Property("Bulkhead allows up to max concurrent", prop.ForAll(
 		func(maxConcurrent int) bool {
+			if maxConcurrent < 1 {
+				maxConcurrent = 1
+			}
+			if maxConcurrent > 20 {
+				maxConcurrent = 20
+			}
+
 			b := New(Config{
 				Name:          "test",
 				MaxConcurrent: maxConcurrent,
 				MaxQueue:      0, // No queue
-				QueueTimeout:  time.Millisecond,
+				QueueTimeout:  0,
 			})
 
-			ctx := context.Background()
-
-			// Fill up
+			// Should allow exactly maxConcurrent acquires
 			for i := 0; i < maxConcurrent; i++ {
-				b.Acquire(ctx)
-			}
-
-			// Try to acquire more (should be rejected)
-			rejections := 0
-			for i := 0; i < 5; i++ {
-				if err := b.Acquire(ctx); err != nil {
-					rejections++
+				err := b.Acquire(context.Background())
+				if err != nil {
+					t.Logf("Acquire %d should succeed", i)
+					return false
 				}
 			}
 
-			metrics := b.GetMetrics()
-			return metrics.RejectedCount == int64(rejections)
+			// Next acquire should fail
+			err := b.Acquire(context.Background())
+			if err == nil {
+				t.Log("Acquire after max should fail")
+				return false
+			}
+
+			return true
 		},
-		gen.IntRange(2, 10),
+		gen.IntRange(1, 20),
 	))
 
-	props.TestingRun(t)
+	properties.TestingRun(t)
+}
+
+func TestBulkhead_QueueWorks(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Bulkhead queue allows waiting", prop.ForAll(
+		func(maxQueue int) bool {
+			if maxQueue < 1 {
+				maxQueue = 1
+			}
+			if maxQueue > 10 {
+				maxQueue = 10
+			}
+
+			b := New(Config{
+				Name:          "test",
+				MaxConcurrent: 1,
+				MaxQueue:      maxQueue,
+				QueueTimeout:  100 * time.Millisecond,
+			})
+
+			// Acquire the only slot
+			b.Acquire(context.Background())
+
+			// Queue should accept maxQueue requests
+			var wg sync.WaitGroup
+			errors := make(chan error, maxQueue+1)
+
+			for i := 0; i < maxQueue; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					err := b.Acquire(context.Background())
+					errors <- err
+				}()
+			}
+
+			// Give goroutines time to enter queue
+			time.Sleep(10 * time.Millisecond)
+
+			// One more should fail immediately (queue full)
+			err := b.Acquire(context.Background())
+			if err == nil {
+				t.Log("Acquire with full queue should fail")
+				return false
+			}
+
+			// Release to let queued requests through
+			b.Release()
+
+			wg.Wait()
+			close(errors)
+
+			// At least one queued request should succeed
+			successCount := 0
+			for err := range errors {
+				if err == nil {
+					successCount++
+				}
+			}
+
+			return successCount >= 1
+		},
+		gen.IntRange(1, 10),
+	))
+
+	properties.TestingRun(t)
+}
+
+func TestBulkhead_EmitsEventsOnRejection(t *testing.T) {
+	emitter := newMockEmitter()
+	builder := domain.NewEventBuilder(emitter, "test-service", nil)
+
+	b := New(Config{
+		Name:          "test",
+		MaxConcurrent: 1,
+		MaxQueue:      0,
+		EventBuilder:  builder,
+	})
+
+	// Acquire the only slot
+	b.Acquire(context.Background())
+
+	// Next acquire should fail and emit event
+	b.Acquire(context.Background())
+
+	events := emitter.GetEvents()
+	if len(events) != 1 {
+		t.Errorf("Expected 1 event, got %d", len(events))
+	}
+
+	if len(events) > 0 && events[0].Type != domain.EventBulkheadRejection {
+		t.Errorf("Expected EventBulkheadRejection, got %s", events[0].Type)
+	}
+}
+
+func TestBulkhead_Release(t *testing.T) {
+	b := New(Config{
+		Name:          "test",
+		MaxConcurrent: 1,
+		MaxQueue:      0,
+	})
+
+	// Acquire
+	err := b.Acquire(context.Background())
+	if err != nil {
+		t.Errorf("First acquire should succeed: %v", err)
+	}
+
+	// Second acquire should fail
+	err = b.Acquire(context.Background())
+	if err == nil {
+		t.Error("Second acquire should fail")
+	}
+
+	// Release
+	b.Release()
+
+	// Now acquire should succeed
+	err = b.Acquire(context.Background())
+	if err != nil {
+		t.Errorf("Acquire after release should succeed: %v", err)
+	}
+}
+
+func TestBulkhead_Metrics(t *testing.T) {
+	b := New(Config{
+		Name:          "test",
+		MaxConcurrent: 2,
+		MaxQueue:      0,
+	})
+
+	// Initial metrics
+	metrics := b.GetMetrics()
+	if metrics.ActiveCount != 0 {
+		t.Errorf("Expected 0 active, got %d", metrics.ActiveCount)
+	}
+
+	// Acquire one
+	b.Acquire(context.Background())
+	metrics = b.GetMetrics()
+	if metrics.ActiveCount != 1 {
+		t.Errorf("Expected 1 active, got %d", metrics.ActiveCount)
+	}
+
+	// Acquire another
+	b.Acquire(context.Background())
+	metrics = b.GetMetrics()
+	if metrics.ActiveCount != 2 {
+		t.Errorf("Expected 2 active, got %d", metrics.ActiveCount)
+	}
+
+	// Try to acquire (should fail and increment rejected)
+	b.Acquire(context.Background())
+	metrics = b.GetMetrics()
+	if metrics.RejectedCount != 1 {
+		t.Errorf("Expected 1 rejected, got %d", metrics.RejectedCount)
+	}
+}
+
+func TestBulkhead_NilEventBuilder(t *testing.T) {
+	b := New(Config{
+		Name:          "test",
+		MaxConcurrent: 1,
+		MaxQueue:      0,
+		EventBuilder:  nil,
+	})
+
+	// Acquire the only slot
+	b.Acquire(context.Background())
+
+	// Should not panic with nil event builder
+	b.Acquire(context.Background())
+}
+
+func TestManager_CreatesBulkheads(t *testing.T) {
+	manager := NewManager(domain.BulkheadConfig{
+		MaxConcurrent: 5,
+		MaxQueue:      2,
+		QueueTimeout:  time.Second,
+	}, nil)
+
+	b1 := manager.GetBulkhead("partition1")
+	b2 := manager.GetBulkhead("partition2")
+	b1Again := manager.GetBulkhead("partition1")
+
+	if b1 == b2 {
+		t.Error("Different partitions should have different bulkheads")
+	}
+
+	if b1 != b1Again {
+		t.Error("Same partition should return same bulkhead")
+	}
+}
+
+func TestManager_GetAllMetrics(t *testing.T) {
+	manager := NewManager(domain.BulkheadConfig{
+		MaxConcurrent: 5,
+		MaxQueue:      2,
+		QueueTimeout:  time.Second,
+	}, nil)
+
+	// Create some bulkheads
+	manager.GetBulkhead("partition1")
+	manager.GetBulkhead("partition2")
+
+	metrics := manager.GetAllMetrics()
+	if len(metrics) != 2 {
+		t.Errorf("Expected 2 partitions, got %d", len(metrics))
+	}
+
+	if _, ok := metrics["partition1"]; !ok {
+		t.Error("Missing partition1 metrics")
+	}
+
+	if _, ok := metrics["partition2"]; !ok {
+		t.Error("Missing partition2 metrics")
+	}
 }

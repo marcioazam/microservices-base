@@ -1,0 +1,15 @@
+go 1.25.5
+
+use (
+	./collections
+	./concurrency
+	./events
+	./functional
+	./grpc
+	./optics
+	./patterns
+	./resilience
+	./server
+	./testing
+	./utils
+)

@@ -1,17 +1,21 @@
+// Package domain provides circuit breaker types for the resilience service.
+// This package re-exports types from libs/go/resilience/domain for backward compatibility.
 package domain
 
 import (
 	"context"
 	"time"
+
+	libdomain "github.com/auth-platform/libs/go/resilience/domain"
 )
 
 // CircuitState represents the circuit breaker state.
 type CircuitState int
 
 const (
-	StateClosed CircuitState = iota
-	StateOpen
-	StateHalfOpen
+	StateClosed   CircuitState = CircuitState(libdomain.CircuitClosed)
+	StateOpen     CircuitState = CircuitState(libdomain.CircuitOpen)
+	StateHalfOpen CircuitState = CircuitState(libdomain.CircuitHalfOpen)
 )
 
 func (s CircuitState) String() string {
@@ -33,6 +37,16 @@ type CircuitBreakerConfig struct {
 	SuccessThreshold int           `json:"success_threshold" yaml:"successThreshold"`
 	Timeout          time.Duration `json:"timeout" yaml:"timeout"`
 	ProbeCount       int           `json:"probe_count" yaml:"probeCount"`
+}
+
+// ToLibConfig converts to library config type.
+func (c CircuitBreakerConfig) ToLibConfig() libdomain.CircuitBreakerConfig {
+	return libdomain.CircuitBreakerConfig{
+		FailureThreshold: c.FailureThreshold,
+		SuccessThreshold: c.SuccessThreshold,
+		Timeout:          c.Timeout,
+		HalfOpenMaxCalls: c.ProbeCount,
+	}
 }
 
 // CircuitBreakerState represents persistent circuit state.

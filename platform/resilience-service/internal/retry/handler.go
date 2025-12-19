@@ -3,8 +3,9 @@ package retry
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/auth-platform/platform/resilience-service/internal/domain"
@@ -12,34 +13,24 @@ import (
 
 // Handler implements the RetryHandler interface.
 type Handler struct {
-	config        domain.RetryConfig
-	serviceName   string
-	eventEmitter  domain.EventEmitter
-	correlationFn func() string
-	randSource    *rand.Rand
+	config       domain.RetryConfig
+	serviceName  string
+	eventBuilder *domain.EventBuilder
 }
 
 // Config holds retry handler creation options.
 type Config struct {
-	ServiceName   string
-	Config        domain.RetryConfig
-	EventEmitter  domain.EventEmitter
-	CorrelationFn func() string
+	ServiceName  string
+	Config       domain.RetryConfig
+	EventBuilder *domain.EventBuilder
 }
 
 // New creates a new retry handler.
 func New(cfg Config) *Handler {
-	correlationFn := cfg.CorrelationFn
-	if correlationFn == nil {
-		correlationFn = func() string { return "" }
-	}
-
 	return &Handler{
-		config:        cfg.Config,
-		serviceName:   cfg.ServiceName,
-		eventEmitter:  cfg.EventEmitter,
-		correlationFn: correlationFn,
-		randSource:    rand.New(rand.NewSource(time.Now().UnixNano())),
+		config:       cfg.Config,
+		serviceName:  cfg.ServiceName,
+		eventBuilder: cfg.EventBuilder,
 	}
 }
 
@@ -134,9 +125,9 @@ func (h *Handler) CalculateDelay(attempt int) time.Duration {
 		baseDelay = float64(h.config.MaxDelay)
 	}
 
-	// Apply jitter
+	// Apply jitter using crypto/rand for security
 	jitterRange := baseDelay * h.config.JitterPercent
-	jitter := (h.randSource.Float64()*2 - 1) * jitterRange // Random value in [-jitterRange, +jitterRange]
+	jitter := (cryptoRandFloat64()*2 - 1) * jitterRange // Random value in [-jitterRange, +jitterRange]
 
 	finalDelay := baseDelay + jitter
 
@@ -148,30 +139,29 @@ func (h *Handler) CalculateDelay(attempt int) time.Duration {
 	return time.Duration(finalDelay)
 }
 
-// emitRetryEvent emits a retry attempt event.
+// cryptoRandFloat64 returns a cryptographically random float64 in [0, 1).
+func cryptoRandFloat64() float64 {
+	var b [8]byte
+	_, err := rand.Read(b[:])
+	if err != nil {
+		// Fallback to time-based entropy (should never happen)
+		return float64(time.Now().UnixNano()%1000) / 1000.0
+	}
+	// Convert to uint64 and normalize to [0, 1)
+	n := binary.BigEndian.Uint64(b[:])
+	return float64(n) / float64(^uint64(0))
+}
+
+// emitRetryEvent emits a retry attempt event using EventBuilder.
 func (h *Handler) emitRetryEvent(attempt int, delay time.Duration, err error) {
-	if h.eventEmitter == nil {
+	if h.eventBuilder == nil {
 		return
 	}
 
-	event := domain.ResilienceEvent{
-		ID:            generateEventID(),
-		Type:          domain.EventRetryAttempt,
-		ServiceName:   h.serviceName,
-		Timestamp:     time.Now(),
-		CorrelationID: h.correlationFn(),
-		Metadata: map[string]any{
-			"attempt":      attempt,
-			"max_attempts": h.config.MaxAttempts,
-			"delay":        delay.String(),
-			"error":        err.Error(),
-		},
-	}
-
-	h.eventEmitter.Emit(event)
-}
-
-// generateEventID generates a unique event ID.
-func generateEventID() string {
-	return time.Now().Format("20060102150405.000000000")
+	h.eventBuilder.Emit(domain.EventRetryAttempt, map[string]any{
+		"attempt":      attempt,
+		"max_attempts": h.config.MaxAttempts,
+		"delay":        delay.String(),
+		"error":        err.Error(),
+	})
 }

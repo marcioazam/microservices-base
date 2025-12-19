@@ -11,10 +11,9 @@ import (
 
 // Aggregator implements the HealthAggregator interface.
 type Aggregator struct {
-	mu            sync.RWMutex
-	services      map[string]*serviceEntry
-	eventEmitter  domain.EventEmitter
-	correlationFn func() string
+	mu           sync.RWMutex
+	services     map[string]*serviceEntry
+	eventBuilder *domain.EventBuilder
 }
 
 type serviceEntry struct {
@@ -26,21 +25,14 @@ type serviceEntry struct {
 
 // Config holds aggregator creation options.
 type Config struct {
-	EventEmitter  domain.EventEmitter
-	CorrelationFn func() string
+	EventBuilder *domain.EventBuilder
 }
 
 // NewAggregator creates a new health aggregator.
 func NewAggregator(cfg Config) *Aggregator {
-	correlationFn := cfg.CorrelationFn
-	if correlationFn == nil {
-		correlationFn = func() string { return "" }
-	}
-
 	return &Aggregator{
-		services:      make(map[string]*serviceEntry),
-		eventEmitter:  cfg.EventEmitter,
-		correlationFn: correlationFn,
+		services:     make(map[string]*serviceEntry),
+		eventBuilder: cfg.EventBuilder,
 	}
 }
 
@@ -151,26 +143,18 @@ func (a *Aggregator) checkService(ctx context.Context, name string) {
 	a.UpdateHealth(name, status, message)
 }
 
-// emitHealthChangeEvent emits a health change event.
+// emitHealthChangeEvent emits a health change event using EventBuilder.
 func (a *Aggregator) emitHealthChangeEvent(name string, prev, new domain.HealthStatus, message string) {
-	if a.eventEmitter == nil {
+	if a.eventBuilder == nil {
 		return
 	}
 
-	event := domain.ResilienceEvent{
-		ID:            generateEventID(),
-		Type:          domain.EventHealthChange,
-		ServiceName:   name,
-		Timestamp:     time.Now(),
-		CorrelationID: a.correlationFn(),
-		Metadata: map[string]any{
-			"previous_status": string(prev),
-			"new_status":      string(new),
-			"message":         message,
-		},
-	}
-
-	a.eventEmitter.Emit(event)
+	a.eventBuilder.Emit(domain.EventHealthChange, map[string]any{
+		"service_name":    name,
+		"previous_status": string(prev),
+		"new_status":      string(new),
+		"message":         message,
+	})
 }
 
 // aggregateStatus returns the worst status between two statuses.
@@ -197,9 +181,4 @@ func AggregateStatuses(statuses []domain.HealthStatus) domain.HealthStatus {
 	}
 
 	return result
-}
-
-// generateEventID generates a unique event ID.
-func generateEventID() string {
-	return time.Now().Format("20060102150405.000000000")
 }

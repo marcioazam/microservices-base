@@ -1,0 +1,18 @@
+# 2025/12/19 11:57:48.661806 [TestProperty_ErrorJSONRoundTrip] [rapid] draw service: "A"
+# 2025/12/19 11:57:48.661806 [TestProperty_ErrorJSONRoundTrip] [rapid] draw correlationID: "-"
+# 2025/12/19 11:57:48.661806 [TestProperty_ErrorJSONRoundTrip] [rapid] draw limit: 1
+# 2025/12/19 11:57:48.661806 [TestProperty_ErrorJSONRoundTrip] Limit mismatch: 0 != 1
+# 
+v0.4.8#6945876056669953694
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

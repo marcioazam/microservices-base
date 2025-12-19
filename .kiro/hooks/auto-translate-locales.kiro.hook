@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "name": "Auto-Translate Localization Files",
+  "description": "Monitors changes to localization files (JSON, YAML, and other common i18n formats) in the primary language. When changes are detected, identifies new or modified text strings and generates translations for all configured target languages while maintaining proper context, meaning, and locale-specific conventions.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/locales/**/*.json",
+      "**/locales/**/*.yaml",
+      "**/locales/**/*.yml",
+      "**/i18n/**/*.json",
+      "**/i18n/**/*.yaml",
+      "**/i18n/**/*.yml",
+      "**/translations/**/*.json",
+      "**/translations/**/*.yaml",
+      "**/lang/**/*.json",
+      "**/lang/**/*.yaml",
+      "**/*.locale.json",
+      "**/*.strings.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A localization file has been modified. Please:\n\n1. Identify the new or modified text strings in this file\n2. Determine the source/primary language of the content\n3. Look for other language files in the same directory structure to identify configured target languages\n4. Generate accurate translations for all target languages, ensuring:\n   - Proper context and meaning are preserved\n   - Locale-specific conventions are followed (date formats, number formats, pluralization rules)\n   - Placeholders and variables (e.g., {name}, {{count}}, %s) are preserved exactly\n   - HTML tags and formatting are maintained\n   - Cultural appropriateness is considered\n5. Update the corresponding translation files with the new translations\n6. Report a summary of what was translated and to which languages"
+  }
+}

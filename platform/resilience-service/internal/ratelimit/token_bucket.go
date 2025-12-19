@@ -16,7 +16,7 @@ type TokenBucket struct {
 	tokens       float64
 	refillRate   float64 // tokens per second
 	lastRefill   time.Time
-	eventEmitter domain.EventEmitter
+	eventBuilder *domain.EventBuilder
 }
 
 // TokenBucketConfig holds token bucket configuration.
@@ -24,7 +24,7 @@ type TokenBucketConfig struct {
 	Capacity     int           // Maximum tokens (burst size)
 	RefillRate   int           // Tokens per window
 	Window       time.Duration // Time window for refill rate
-	EventEmitter domain.EventEmitter
+	EventBuilder *domain.EventBuilder
 }
 
 // NewTokenBucket creates a new token bucket rate limiter.
@@ -37,7 +37,7 @@ func NewTokenBucket(cfg TokenBucketConfig) *TokenBucket {
 		tokens:       float64(cfg.Capacity), // Start full
 		refillRate:   refillRate,
 		lastRefill:   time.Now(),
-		eventEmitter: cfg.EventEmitter,
+		eventBuilder: cfg.EventBuilder,
 	}
 }
 
@@ -121,25 +121,18 @@ func (tb *TokenBucket) calculateRetryAfter() time.Duration {
 	return time.Duration(secondsToWait * float64(time.Second))
 }
 
-// emitRateLimitEvent emits a rate limit event.
+// emitRateLimitEvent emits a rate limit event using EventBuilder.
 func (tb *TokenBucket) emitRateLimitEvent(key string, decision domain.RateLimitDecision) {
-	if tb.eventEmitter == nil {
+	if tb.eventBuilder == nil {
 		return
 	}
 
-	event := domain.ResilienceEvent{
-		ID:        generateEventID(),
-		Type:      domain.EventRateLimitHit,
-		Timestamp: time.Now(),
-		Metadata: map[string]any{
-			"key":         key,
-			"allowed":     decision.Allowed,
-			"remaining":   decision.Remaining,
-			"retry_after": decision.RetryAfter.String(),
-		},
-	}
-
-	tb.eventEmitter.Emit(event)
+	tb.eventBuilder.Emit(domain.EventRateLimitHit, map[string]any{
+		"key":         key,
+		"allowed":     decision.Allowed,
+		"remaining":   decision.Remaining,
+		"retry_after": decision.RetryAfter.String(),
+	})
 }
 
 // GetTokenCount returns current token count (for testing).
@@ -153,9 +146,4 @@ func (tb *TokenBucket) GetTokenCount() float64 {
 // GetCapacity returns the bucket capacity.
 func (tb *TokenBucket) GetCapacity() float64 {
 	return tb.capacity
-}
-
-// generateEventID generates a unique event ID.
-func generateEventID() string {
-	return time.Now().Format("20060102150405.000000000")
 }

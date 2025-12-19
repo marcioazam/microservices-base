@@ -11,42 +11,34 @@ import (
 
 // Breaker implements the CircuitBreaker interface.
 type Breaker struct {
-	mu            sync.RWMutex
-	config        domain.CircuitBreakerConfig
-	serviceName   string
-	state         domain.CircuitState
-	failureCount  int
-	successCount  int
-	lastFailure   *time.Time
-	lastChange    time.Time
-	version       int64
-	openedAt      time.Time
-	eventEmitter  domain.EventEmitter
-	correlationFn func() string
+	mu           sync.RWMutex
+	config       domain.CircuitBreakerConfig
+	serviceName  string
+	state        domain.CircuitState
+	failureCount int
+	successCount int
+	lastFailure  *time.Time
+	lastChange   time.Time
+	version      int64
+	openedAt     time.Time
+	eventBuilder *domain.EventBuilder
 }
 
 // Config holds circuit breaker creation options.
 type Config struct {
-	ServiceName   string
-	Config        domain.CircuitBreakerConfig
-	EventEmitter  domain.EventEmitter
-	CorrelationFn func() string
+	ServiceName  string
+	Config       domain.CircuitBreakerConfig
+	EventBuilder *domain.EventBuilder
 }
 
 // New creates a new circuit breaker.
 func New(cfg Config) *Breaker {
-	correlationFn := cfg.CorrelationFn
-	if correlationFn == nil {
-		correlationFn = func() string { return "" }
-	}
-
 	return &Breaker{
-		config:        cfg.Config,
-		serviceName:   cfg.ServiceName,
-		state:         domain.StateClosed,
-		lastChange:    time.Now(),
-		eventEmitter:  cfg.EventEmitter,
-		correlationFn: correlationFn,
+		config:       cfg.Config,
+		serviceName:  cfg.ServiceName,
+		state:        domain.StateClosed,
+		lastChange:   time.Now(),
+		eventBuilder: cfg.EventBuilder,
 	}
 }
 
@@ -187,30 +179,16 @@ func (b *Breaker) transitionTo(newState domain.CircuitState) {
 	b.emitStateChangeEvent(prevState, newState)
 }
 
-// emitStateChangeEvent emits a state change event.
+// emitStateChangeEvent emits a state change event using EventBuilder.
 func (b *Breaker) emitStateChangeEvent(prevState, newState domain.CircuitState) {
-	if b.eventEmitter == nil {
+	if b.eventBuilder == nil {
 		return
 	}
 
-	event := domain.ResilienceEvent{
-		ID:            generateEventID(),
-		Type:          domain.EventCircuitStateChange,
-		ServiceName:   b.serviceName,
-		Timestamp:     time.Now(),
-		CorrelationID: b.correlationFn(),
-		Metadata: map[string]any{
-			"previous_state": prevState.String(),
-			"new_state":      newState.String(),
-			"failure_count":  b.failureCount,
-			"success_count":  b.successCount,
-		},
-	}
-
-	b.eventEmitter.Emit(event)
-}
-
-// generateEventID generates a unique event ID.
-func generateEventID() string {
-	return time.Now().Format("20060102150405.000000000")
+	b.eventBuilder.Emit(domain.EventCircuitStateChange, map[string]any{
+		"previous_state": prevState.String(),
+		"new_state":      newState.String(),
+		"failure_count":  b.failureCount,
+		"success_count":  b.successCount,
+	})
 }

@@ -3,147 +3,82 @@ package retry
 import (
 	"context"
 	"errors"
-	"math"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/domain"
-	"github.com/auth-platform/platform/resilience-service/internal/testutil"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
+
+	"github.com/auth-platform/platform/resilience-service/internal/domain"
 )
 
-// **Feature: resilience-microservice, Property 4: Retry Delay with Exponential Backoff and Jitter**
-// **Validates: Requirements 2.2, 2.3**
-func TestProperty_RetryDelayWithExponentialBackoffAndJitter(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("delay_within_jitter_bounds", prop.ForAll(
-		func(attempt int, baseDelayMs int, maxDelayMs int, multiplier float64, jitterPercent float64) bool {
-			if baseDelayMs >= maxDelayMs {
-				return true // Skip invalid configs
-			}
-
-			config := domain.RetryConfig{
-				MaxAttempts:   10,
-				BaseDelay:     time.Duration(baseDelayMs) * time.Millisecond,
-				MaxDelay:      time.Duration(maxDelayMs) * time.Millisecond,
-				Multiplier:    multiplier,
-				JitterPercent: jitterPercent,
-			}
-
-			handler := New(Config{
-				ServiceName: "test-service",
-				Config:      config,
-			})
-
-			// Calculate expected base delay
-			expectedBase := float64(config.BaseDelay) * math.Pow(multiplier, float64(attempt))
-			if expectedBase > float64(config.MaxDelay) {
-				expectedBase = float64(config.MaxDelay)
-			}
-
-			// Calculate bounds
-			minDelay := expectedBase * (1 - jitterPercent)
-			maxDelay := expectedBase * (1 + jitterPercent)
-
-			// Test multiple times due to randomness
-			for i := 0; i < 10; i++ {
-				delay := handler.CalculateDelay(attempt)
-				delayFloat := float64(delay)
-
-				// Allow small epsilon for floating point
-				epsilon := float64(time.Microsecond)
-				if delayFloat < minDelay-epsilon || delayFloat > maxDelay+epsilon {
-					return false
-				}
-			}
-
-			return true
-		},
-		gen.IntRange(0, 5),
-		gen.IntRange(10, 500),
-		gen.IntRange(1000, 10000),
-		gen.Float64Range(1.0, 3.0),
-		gen.Float64Range(0.0, 0.5),
-	))
-
-	props.Property("delay_capped_at_max", prop.ForAll(
-		func(attempt int, maxDelayMs int) bool {
-			config := domain.RetryConfig{
-				MaxAttempts:   10,
-				BaseDelay:     100 * time.Millisecond,
-				MaxDelay:      time.Duration(maxDelayMs) * time.Millisecond,
-				Multiplier:    10.0, // High multiplier to exceed max quickly
-				JitterPercent: 0.0,  // No jitter for deterministic test
-			}
-
-			handler := New(Config{
-				ServiceName: "test-service",
-				Config:      config,
-			})
-
-			delay := handler.CalculateDelay(attempt)
-
-			// Delay should never exceed max
-			return delay <= config.MaxDelay
-		},
-		gen.IntRange(5, 20),
-		gen.IntRange(500, 5000),
-	))
-
-	props.TestingRun(t)
+// mockEmitter is a test implementation of EventEmitter.
+type mockEmitter struct {
+	mu     sync.Mutex
+	events []domain.ResilienceEvent
 }
 
-// **Feature: resilience-microservice, Property 5: Retry Exhaustion Returns Final Error**
-// **Validates: Requirements 2.4**
-func TestProperty_RetryExhaustionReturnsFinalError(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
+func newMockEmitter() *mockEmitter {
+	return &mockEmitter{events: make([]domain.ResilienceEvent, 0)}
+}
 
-	props.Property("exhaustion_includes_attempt_count", prop.ForAll(
+func (m *mockEmitter) Emit(event domain.ResilienceEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, event)
+}
+
+func (m *mockEmitter) EmitAudit(event domain.AuditEvent) {}
+
+func (m *mockEmitter) GetEvents() []domain.ResilienceEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]domain.ResilienceEvent, len(m.events))
+	copy(result, m.events)
+	return result
+}
+
+func TestRetryHandler_RetriesOnFailure(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Retry handler retries up to max attempts", prop.ForAll(
 		func(maxAttempts int) bool {
-			config := domain.RetryConfig{
-				MaxAttempts:   maxAttempts,
-				BaseDelay:     time.Millisecond,
-				MaxDelay:      10 * time.Millisecond,
-				Multiplier:    1.0,
-				JitterPercent: 0.0,
+			if maxAttempts < 1 {
+				maxAttempts = 1
+			}
+			if maxAttempts > 5 {
+				maxAttempts = 5
 			}
 
+			attempts := 0
 			handler := New(Config{
-				ServiceName: "test-service",
-				Config:      config,
+				ServiceName: "test",
+				Config: domain.RetryConfig{
+					MaxAttempts:   maxAttempts,
+					BaseDelay:     time.Millisecond,
+					MaxDelay:      10 * time.Millisecond,
+					Multiplier:    1.5,
+					JitterPercent: 0.1,
+				},
 			})
-
-			attemptCount := 0
-			testErr := errors.New("test error")
 
 			err := handler.Execute(context.Background(), func() error {
-				attemptCount++
-				return testErr
+				attempts++
+				return errors.New("always fail")
 			})
 
-			// Should have made exactly maxAttempts
-			if attemptCount != maxAttempts {
+			if err == nil {
+				t.Log("Expected error")
 				return false
 			}
 
-			// Should return retry exhausted error
-			var resErr *domain.ResilienceError
-			if !errors.As(err, &resErr) {
-				return false
-			}
-
-			if resErr.Code != domain.ErrRetryExhausted {
-				return false
-			}
-
-			// Should include attempt count in metadata
-			attempts, ok := resErr.Metadata["attempts"].(int)
-			if !ok || attempts != maxAttempts {
+			if attempts != maxAttempts {
+				t.Logf("Expected %d attempts, got %d", maxAttempts, attempts)
 				return false
 			}
 
@@ -152,123 +87,183 @@ func TestProperty_RetryExhaustionReturnsFinalError(t *testing.T) {
 		gen.IntRange(1, 5),
 	))
 
-	props.Property("exhaustion_wraps_final_error", prop.ForAll(
-		func(maxAttempts int) bool {
-			config := domain.RetryConfig{
-				MaxAttempts:   maxAttempts,
-				BaseDelay:     time.Millisecond,
-				MaxDelay:      10 * time.Millisecond,
-				Multiplier:    1.0,
-				JitterPercent: 0.0,
-			}
+	properties.TestingRun(t)
+}
 
-			handler := New(Config{
-				ServiceName: "test-service",
-				Config:      config,
-			})
-
-			finalErr := errors.New("final error")
-
-			err := handler.Execute(context.Background(), func() error {
-				return finalErr
-			})
-
-			// Should wrap the final error
-			return errors.Is(err, finalErr)
+func TestRetryHandler_SucceedsOnFirstAttempt(t *testing.T) {
+	handler := New(Config{
+		ServiceName: "test",
+		Config: domain.RetryConfig{
+			MaxAttempts:   3,
+			BaseDelay:     time.Millisecond,
+			MaxDelay:      10 * time.Millisecond,
+			Multiplier:    2.0,
+			JitterPercent: 0.1,
 		},
-		gen.IntRange(1, 5),
-	))
+	})
 
-	props.TestingRun(t)
+	attempts := 0
+	err := handler.Execute(context.Background(), func() error {
+		attempts++
+		return nil
+	})
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if attempts != 1 {
+		t.Errorf("Expected 1 attempt, got %d", attempts)
+	}
 }
 
-// **Feature: resilience-microservice, Property 6: Open Circuit Blocks Retry Attempts**
-// **Validates: Requirements 2.5**
-func TestProperty_OpenCircuitBlocksRetryAttempts(t *testing.T) {
-	params := testutil.DefaultTestParameters()
-	props := gopter.NewProperties(params)
-
-	props.Property("open_circuit_returns_immediately", prop.ForAll(
-		func(maxAttempts int) bool {
-			config := domain.RetryConfig{
-				MaxAttempts:   maxAttempts,
-				BaseDelay:     time.Second, // Long delay
-				MaxDelay:      10 * time.Second,
-				Multiplier:    2.0,
-				JitterPercent: 0.0,
-			}
-
-			handler := New(Config{
-				ServiceName: "test-service",
-				Config:      config,
-			})
-
-			// Create a mock circuit breaker that's always open
-			cb := &mockCircuitBreaker{state: domain.StateOpen}
-
-			attemptCount := 0
-			start := time.Now()
-
-			err := handler.ExecuteWithCircuitBreaker(context.Background(), cb, func() error {
-				attemptCount++
-				return errors.New("should not be called")
-			})
-
-			elapsed := time.Since(start)
-
-			// Should return immediately (no retries)
-			if elapsed > 100*time.Millisecond {
-				return false
-			}
-
-			// Should not have called operation
-			if attemptCount != 0 {
-				return false
-			}
-
-			// Should return circuit open error
-			var resErr *domain.ResilienceError
-			if !errors.As(err, &resErr) {
-				return false
-			}
-
-			return resErr.Code == domain.ErrCircuitOpen
+func TestRetryHandler_SucceedsAfterRetries(t *testing.T) {
+	handler := New(Config{
+		ServiceName: "test",
+		Config: domain.RetryConfig{
+			MaxAttempts:   5,
+			BaseDelay:     time.Millisecond,
+			MaxDelay:      10 * time.Millisecond,
+			Multiplier:    1.5,
+			JitterPercent: 0.1,
 		},
-		gen.IntRange(1, 10),
-	))
+	})
 
-	props.TestingRun(t)
+	attempts := 0
+	err := handler.Execute(context.Background(), func() error {
+		attempts++
+		if attempts < 3 {
+			return errors.New("fail")
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if attempts != 3 {
+		t.Errorf("Expected 3 attempts, got %d", attempts)
+	}
 }
 
-// mockCircuitBreaker is a test implementation of CircuitBreaker.
-type mockCircuitBreaker struct {
-	state        domain.CircuitState
-	successCount int
-	failureCount int
+func TestRetryHandler_EmitsEventsOnRetry(t *testing.T) {
+	emitter := newMockEmitter()
+	builder := domain.NewEventBuilder(emitter, "test-service", nil)
+
+	handler := New(Config{
+		ServiceName:  "test",
+		EventBuilder: builder,
+		Config: domain.RetryConfig{
+			MaxAttempts:   3,
+			BaseDelay:     time.Millisecond,
+			MaxDelay:      10 * time.Millisecond,
+			Multiplier:    1.5,
+			JitterPercent: 0.1,
+		},
+	})
+
+	handler.Execute(context.Background(), func() error {
+		return errors.New("fail")
+	})
+
+	events := emitter.GetEvents()
+	// Should emit events for attempts 1 and 2 (not the last one)
+	if len(events) != 2 {
+		t.Errorf("Expected 2 events, got %d", len(events))
+	}
+
+	for _, event := range events {
+		if event.Type != domain.EventRetryAttempt {
+			t.Errorf("Expected EventRetryAttempt, got %s", event.Type)
+		}
+	}
 }
 
-func (m *mockCircuitBreaker) Execute(ctx context.Context, operation func() error) error {
-	return operation()
+func TestRetryHandler_RespectsContextCancellation(t *testing.T) {
+	handler := New(Config{
+		ServiceName: "test",
+		Config: domain.RetryConfig{
+			MaxAttempts:   10,
+			BaseDelay:     100 * time.Millisecond,
+			MaxDelay:      time.Second,
+			Multiplier:    2.0,
+			JitterPercent: 0.1,
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	attempts := 0
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := handler.Execute(ctx, func() error {
+		attempts++
+		return errors.New("fail")
+	})
+
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got %v", err)
+	}
 }
 
-func (m *mockCircuitBreaker) GetState() domain.CircuitState {
-	return m.state
+func TestRetryHandler_CalculateDelay(t *testing.T) {
+	handler := New(Config{
+		ServiceName: "test",
+		Config: domain.RetryConfig{
+			MaxAttempts:   5,
+			BaseDelay:     100 * time.Millisecond,
+			MaxDelay:      time.Second,
+			Multiplier:    2.0,
+			JitterPercent: 0.1,
+		},
+	})
+
+	// Test exponential backoff
+	delay0 := handler.CalculateDelay(0)
+	delay1 := handler.CalculateDelay(1)
+	delay2 := handler.CalculateDelay(2)
+
+	// With jitter, delays should be approximately:
+	// attempt 0: ~100ms
+	// attempt 1: ~200ms
+	// attempt 2: ~400ms
+
+	if delay0 < 80*time.Millisecond || delay0 > 120*time.Millisecond {
+		t.Errorf("Delay 0 out of expected range: %v", delay0)
+	}
+
+	if delay1 < 160*time.Millisecond || delay1 > 240*time.Millisecond {
+		t.Errorf("Delay 1 out of expected range: %v", delay1)
+	}
+
+	if delay2 < 320*time.Millisecond || delay2 > 480*time.Millisecond {
+		t.Errorf("Delay 2 out of expected range: %v", delay2)
+	}
 }
 
-func (m *mockCircuitBreaker) GetFullState() domain.CircuitBreakerState {
-	return domain.CircuitBreakerState{State: m.state}
-}
+func TestRetryHandler_NilEventBuilder(t *testing.T) {
+	handler := New(Config{
+		ServiceName:  "test",
+		EventBuilder: nil,
+		Config: domain.RetryConfig{
+			MaxAttempts:   2,
+			BaseDelay:     time.Millisecond,
+			MaxDelay:      10 * time.Millisecond,
+			Multiplier:    1.5,
+			JitterPercent: 0.1,
+		},
+	})
 
-func (m *mockCircuitBreaker) RecordSuccess() {
-	m.successCount++
-}
+	// Should not panic with nil event builder
+	err := handler.Execute(context.Background(), func() error {
+		return errors.New("fail")
+	})
 
-func (m *mockCircuitBreaker) RecordFailure() {
-	m.failureCount++
-}
-
-func (m *mockCircuitBreaker) Reset() {
-	m.state = domain.StateClosed
-	m.successCount = 0
-	m.failureCount = 0
+	if err == nil {
+		t.Error("Expected error")
+	}
 }

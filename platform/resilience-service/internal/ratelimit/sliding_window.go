@@ -14,14 +14,14 @@ type SlidingWindow struct {
 	limit        int
 	window       time.Duration
 	requests     []time.Time
-	eventEmitter domain.EventEmitter
+	eventBuilder *domain.EventBuilder
 }
 
 // SlidingWindowConfig holds sliding window configuration.
 type SlidingWindowConfig struct {
 	Limit        int           // Maximum requests per window
 	Window       time.Duration // Time window
-	EventEmitter domain.EventEmitter
+	EventBuilder *domain.EventBuilder
 }
 
 // NewSlidingWindow creates a new sliding window rate limiter.
@@ -30,7 +30,7 @@ func NewSlidingWindow(cfg SlidingWindowConfig) *SlidingWindow {
 		limit:        cfg.Limit,
 		window:       cfg.Window,
 		requests:     make([]time.Time, 0),
-		eventEmitter: cfg.EventEmitter,
+		eventBuilder: cfg.EventBuilder,
 	}
 }
 
@@ -121,25 +121,18 @@ func (sw *SlidingWindow) calculateRetryAfter(now time.Time) time.Duration {
 	return 0
 }
 
-// emitRateLimitEvent emits a rate limit event.
+// emitRateLimitEvent emits a rate limit event using EventBuilder.
 func (sw *SlidingWindow) emitRateLimitEvent(key string, decision domain.RateLimitDecision) {
-	if sw.eventEmitter == nil {
+	if sw.eventBuilder == nil {
 		return
 	}
 
-	event := domain.ResilienceEvent{
-		ID:        generateEventID(),
-		Type:      domain.EventRateLimitHit,
-		Timestamp: time.Now(),
-		Metadata: map[string]any{
-			"key":         key,
-			"allowed":     decision.Allowed,
-			"remaining":   decision.Remaining,
-			"retry_after": decision.RetryAfter.String(),
-		},
-	}
-
-	sw.eventEmitter.Emit(event)
+	sw.eventBuilder.Emit(domain.EventRateLimitHit, map[string]any{
+		"key":         key,
+		"allowed":     decision.Allowed,
+		"remaining":   decision.Remaining,
+		"retry_after": decision.RetryAfter.String(),
+	})
 }
 
 // GetRequestCount returns current request count within window (for testing).

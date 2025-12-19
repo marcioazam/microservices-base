@@ -1,25 +1,31 @@
 // Package domain defines core interfaces and types for the resilience service.
+// This package re-exports types from libs/go/resilience/errors for backward compatibility.
 package domain
 
 import (
 	"fmt"
 	"time"
+
+	liberrors "github.com/auth-platform/libs/go/resilience/errors"
 )
 
 // ErrorCode represents the type of resilience error.
-type ErrorCode string
+// Re-exported from libs/go/resilience/errors for backward compatibility.
+type ErrorCode = liberrors.ErrorCode
 
+// Error code constants - re-exported for backward compatibility.
 const (
-	ErrCircuitOpen        ErrorCode = "CIRCUIT_OPEN"
-	ErrRateLimitExceeded  ErrorCode = "RATE_LIMIT_EXCEEDED"
-	ErrTimeout            ErrorCode = "TIMEOUT"
-	ErrBulkheadFull       ErrorCode = "BULKHEAD_FULL"
-	ErrRetryExhausted     ErrorCode = "RETRY_EXHAUSTED"
-	ErrInvalidPolicy      ErrorCode = "INVALID_POLICY"
+	ErrCircuitOpen        ErrorCode = liberrors.ErrCircuitOpen
+	ErrRateLimitExceeded  ErrorCode = liberrors.ErrRateLimitExceeded
+	ErrTimeout            ErrorCode = liberrors.ErrTimeout
+	ErrBulkheadFull       ErrorCode = liberrors.ErrBulkheadFull
+	ErrRetryExhausted     ErrorCode = liberrors.ErrRetryExhausted
+	ErrInvalidPolicy      ErrorCode = liberrors.ErrInvalidPolicy
 	ErrServiceUnavailable ErrorCode = "SERVICE_UNAVAILABLE"
 )
 
 // ResilienceError represents errors from resilience operations.
+// This maintains backward compatibility with the original API.
 type ResilienceError struct {
 	Code       ErrorCode
 	Message    string
@@ -100,3 +106,18 @@ func NewInvalidPolicyError(message string) *ResilienceError {
 		Message: message,
 	}
 }
+
+// IsCircuitOpen checks if the error is a circuit open error.
+var IsCircuitOpen = liberrors.IsCircuitOpen
+
+// IsRateLimitExceeded checks if the error is a rate limit error.
+var IsRateLimitExceeded = liberrors.IsRateLimitExceeded
+
+// IsTimeout checks if the error is a timeout error.
+var IsTimeout = liberrors.IsTimeout
+
+// IsBulkheadFull checks if the error is a bulkhead full error.
+var IsBulkheadFull = liberrors.IsBulkheadFull
+
+// IsRetryExhausted checks if the error is a retry exhausted error.
+var IsRetryExhausted = liberrors.IsRetryExhausted

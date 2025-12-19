@@ -23,8 +23,7 @@ type Bulkhead struct {
 	queuedCount   int64
 	rejectedCount int64
 
-	eventEmitter  domain.EventEmitter
-	correlationFn func() string
+	eventBuilder *domain.EventBuilder
 }
 
 // Config holds bulkhead creation options.
@@ -33,17 +32,11 @@ type Config struct {
 	MaxConcurrent int
 	MaxQueue      int
 	QueueTimeout  time.Duration
-	EventEmitter  domain.EventEmitter
-	CorrelationFn func() string
+	EventBuilder  *domain.EventBuilder
 }
 
 // New creates a new bulkhead.
 func New(cfg Config) *Bulkhead {
-	correlationFn := cfg.CorrelationFn
-	if correlationFn == nil {
-		correlationFn = func() string { return "" }
-	}
-
 	return &Bulkhead{
 		name:          cfg.Name,
 		maxConcurrent: cfg.MaxConcurrent,
@@ -51,8 +44,7 @@ func New(cfg Config) *Bulkhead {
 		queueTimeout:  cfg.QueueTimeout,
 		semaphore:     make(chan struct{}, cfg.MaxConcurrent),
 		queue:         make(chan struct{}, cfg.MaxQueue),
-		eventEmitter:  cfg.EventEmitter,
-		correlationFn: correlationFn,
+		eventBuilder:  cfg.EventBuilder,
 	}
 }
 
@@ -121,34 +113,20 @@ func (b *Bulkhead) GetMetrics() domain.BulkheadMetrics {
 	}
 }
 
-// emitRejectionEvent emits a bulkhead rejection event.
+// emitRejectionEvent emits a bulkhead rejection event using EventBuilder.
 func (b *Bulkhead) emitRejectionEvent() {
-	if b.eventEmitter == nil {
+	if b.eventBuilder == nil {
 		return
 	}
 
 	metrics := b.GetMetrics()
-	event := domain.ResilienceEvent{
-		ID:            generateEventID(),
-		Type:          domain.EventBulkheadRejection,
-		ServiceName:   b.name,
-		Timestamp:     time.Now(),
-		CorrelationID: b.correlationFn(),
-		Metadata: map[string]any{
-			"partition":      b.name,
-			"active_count":   metrics.ActiveCount,
-			"queued_count":   metrics.QueuedCount,
-			"max_concurrent": b.maxConcurrent,
-			"max_queue":      b.maxQueue,
-		},
-	}
-
-	b.eventEmitter.Emit(event)
-}
-
-// generateEventID generates a unique event ID.
-func generateEventID() string {
-	return time.Now().Format("20060102150405.000000000")
+	b.eventBuilder.Emit(domain.EventBulkheadRejection, map[string]any{
+		"partition":      b.name,
+		"active_count":   metrics.ActiveCount,
+		"queued_count":   metrics.QueuedCount,
+		"max_concurrent": b.maxConcurrent,
+		"max_queue":      b.maxQueue,
+	})
 }
 
 // Manager manages multiple bulkhead partitions.
@@ -186,12 +164,17 @@ func (m *Manager) GetBulkhead(partition string) domain.Bulkhead {
 		return b
 	}
 
+	var eventBuilder *domain.EventBuilder
+	if m.emitter != nil {
+		eventBuilder = domain.NewEventBuilder(m.emitter, partition, nil)
+	}
+
 	b := New(Config{
 		Name:          partition,
 		MaxConcurrent: m.config.MaxConcurrent,
 		MaxQueue:      m.config.MaxQueue,
 		QueueTimeout:  m.config.QueueTimeout,
-		EventEmitter:  m.emitter,
+		EventBuilder:  eventBuilder,
 	})
 
 	m.partitions[partition] = b

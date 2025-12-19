@@ -1,8 +1,12 @@
+// Package domain provides health types for the resilience service.
+// This package re-exports types from libs/go/health for backward compatibility.
 package domain
 
 import (
 	"context"
 	"time"
+
+	libhealth "github.com/auth-platform/libs/go/server/health"
 )
 
 // HealthStatus represents service health status.
@@ -13,6 +17,34 @@ const (
 	HealthDegraded  HealthStatus = "degraded"
 	HealthUnhealthy HealthStatus = "unhealthy"
 )
+
+// ToLibStatus converts to library health status.
+func (s HealthStatus) ToLibStatus() libhealth.Status {
+	switch s {
+	case HealthHealthy:
+		return libhealth.Healthy
+	case HealthDegraded:
+		return libhealth.Degraded
+	case HealthUnhealthy:
+		return libhealth.Unhealthy
+	default:
+		return libhealth.Unhealthy
+	}
+}
+
+// FromLibStatus converts from library health status.
+func FromLibStatus(s libhealth.Status) HealthStatus {
+	switch s {
+	case libhealth.Healthy:
+		return HealthHealthy
+	case libhealth.Degraded:
+		return HealthDegraded
+	case libhealth.Unhealthy:
+		return HealthUnhealthy
+	default:
+		return HealthUnhealthy
+	}
+}
 
 // ServiceHealth represents health of a single service.
 type ServiceHealth struct {
@@ -57,4 +89,21 @@ type HealthChangeEvent struct {
 	Message        string       `json:"message,omitempty"`
 	CorrelationID  string       `json:"correlation_id"`
 	Timestamp      time.Time    `json:"timestamp"`
+}
+
+// LibAggregator is a type alias for the library aggregator.
+type LibAggregator = libhealth.Aggregator
+
+// NewLibAggregator creates a new library health aggregator.
+func NewLibAggregator() *LibAggregator {
+	return libhealth.NewAggregator()
+}
+
+// AggregateHealthStatuses aggregates multiple health statuses using library function.
+func AggregateHealthStatuses(statuses []HealthStatus) HealthStatus {
+	libStatuses := make([]libhealth.Status, len(statuses))
+	for i, s := range statuses {
+		libStatuses[i] = s.ToLibStatus()
+	}
+	return FromLibStatus(libhealth.AggregateStatusValues(libStatuses))
 }

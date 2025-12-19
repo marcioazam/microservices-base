@@ -1,0 +1,76 @@
+go 1.25.5
+
+use (
+	// Collections
+	./collections/lru
+	./collections/maps
+	./collections/pqueue
+	./collections/queue
+	./collections/set
+	./collections/slices
+	./collections/sort
+
+	// Concurrency
+	./concurrency/async
+	./concurrency/atomic
+	./concurrency/channels
+	./concurrency/errgroup
+	./concurrency/once
+	./concurrency/pool
+	./concurrency/syncmap
+	./concurrency/waitgroup
+
+	// Events
+	./events/builder
+	./events/eventbus
+	./events/pubsub
+
+	// Functional
+	./functional/either
+	./functional/iterator
+	./functional/lazy
+	./functional/option
+	./functional/pipeline
+	./functional/result
+	./functional/stream
+	./functional/tuple
+
+	// gRPC
+	./grpc/errors
+
+	// Optics
+	./optics/lens
+	./optics/prism
+
+	// Patterns
+	./patterns/registry
+	./patterns/spec
+
+	// Resilience
+	./resilience/bulkhead
+	./resilience/circuitbreaker
+	./resilience/domain
+	./resilience/errors
+	./resilience/ratelimit
+	./resilience/retry
+	./resilience/timeout
+
+	// Server
+	./server/health
+	./server/shutdown
+	./server/tracing
+
+	// Testing
+	./testing/testutil
+
+	// Utils
+	./utils/audit
+	./utils/cache
+	./utils/codec
+	./utils/diff
+	./utils/error
+	./utils/merge
+	./utils/uuid
+	./utils/validated
+	./utils/validator
+)
