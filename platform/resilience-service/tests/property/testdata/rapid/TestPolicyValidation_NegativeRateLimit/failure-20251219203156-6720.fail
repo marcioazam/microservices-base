@@ -1,0 +1,7 @@
+# 2025/12/19 20:31:56.828581 [TestProperty_PolicyValidationRejectsInvalidConfigurations/negative_rate_limit_rejected] [rapid] draw limit: 1
+# 2025/12/19 20:31:56.828581 [TestProperty_PolicyValidationRejectsInvalidConfigurations/negative_rate_limit_rejected] validation mismatch for limit=1
+# 
+v0.4.8#16901034747695523504
+0x0
+0x0
+0x1

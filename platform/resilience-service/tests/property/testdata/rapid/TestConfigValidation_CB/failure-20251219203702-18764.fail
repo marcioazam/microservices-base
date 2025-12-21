@@ -1,0 +1,19 @@
+# 2025/12/19 20:37:02.700378 [TestProperty_ConfigValidation/circuit_breaker_valid_config] [rapid] draw failureThreshold: 1
+# 2025/12/19 20:37:02.700378 [TestProperty_ConfigValidation/circuit_breaker_valid_config] [rapid] draw successThreshold: 2
+# 2025/12/19 20:37:02.700378 [TestProperty_ConfigValidation/circuit_breaker_valid_config] [rapid] draw timeoutSec: 1
+# 2025/12/19 20:37:02.700378 [TestProperty_ConfigValidation/circuit_breaker_valid_config] [rapid] draw probeCount: 1
+# 2025/12/19 20:37:02.700378 [TestProperty_ConfigValidation/circuit_breaker_valid_config] valid config rejected: validation failed: [success_threshold: cannot be greater than failure_threshold (1)]
+# 
+v0.4.8#477943830454784923
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
