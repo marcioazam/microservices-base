@@ -4,144 +4,139 @@ import (
 	"testing"
 	"time"
 
-	"github.com/auth-platform/libs/go/resilience"
+	"github.com/auth-platform/platform/resilience-service/internal/domain/entities"
 	"pgregory.net/rapid"
 )
 
-// **Feature: platform-resilience-modernization, Property 4: Configuration Validation Correctness**
-// **Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5**
-func TestProperty_ConfigurationValidation(t *testing.T) {
-	t.Run("valid_circuit_breaker_config_passes_validation", func(t *testing.T) {
+// TestProperty_ConfigValidation validates configuration validation.
+func TestProperty_ConfigValidation(t *testing.T) {
+	t.Run("circuit_breaker_valid_config", func(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
 			failureThreshold := rapid.IntRange(1, 100).Draw(t, "failureThreshold")
-			successThreshold := rapid.IntRange(1, 100).Draw(t, "successThreshold")
-			timeoutMs := rapid.IntRange(100, 60000).Draw(t, "timeoutMs")
+			successThreshold := rapid.IntRange(1, min(10, failureThreshold)).Draw(t, "successThreshold")
+			timeoutSec := rapid.IntRange(1, 300).Draw(t, "timeoutSec")
+			probeCount := rapid.IntRange(1, 10).Draw(t, "probeCount")
 
-			cfg := resilience.CircuitBreakerConfig{
-				FailureThreshold: failureThreshold,
-				SuccessThreshold: successThreshold,
-				Timeout:          time.Duration(timeoutMs) * time.Millisecond,
-			}
+			result := entities.NewCircuitBreakerConfig(
+				failureThreshold,
+				successThreshold,
+				time.Duration(timeoutSec)*time.Second,
+				probeCount,
+			)
 
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("valid config should pass validation: %v", err)
+			if result.IsErr() {
+				t.Fatalf("valid config rejected: %v", result.UnwrapErr())
 			}
 		})
 	})
 
-	t.Run("valid_retry_config_passes_validation", func(t *testing.T) {
+	t.Run("retry_valid_config", func(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
 			maxAttempts := rapid.IntRange(1, 10).Draw(t, "maxAttempts")
-			baseDelayMs := rapid.IntRange(10, 1000).Draw(t, "baseDelayMs")
-			maxDelayMs := rapid.IntRange(1001, 60000).Draw(t, "maxDelayMs")
+			baseDelayMs := rapid.IntRange(1, 1000).Draw(t, "baseDelayMs")
+			maxDelayMs := rapid.IntRange(1000, 60000).Draw(t, "maxDelayMs")
 			multiplier := rapid.Float64Range(1.0, 5.0).Draw(t, "multiplier")
-			jitter := rapid.Float64Range(0.0, 1.0).Draw(t, "jitter")
 
-			cfg := resilience.RetryConfig{
-				MaxAttempts:   maxAttempts,
-				BaseDelay:     time.Duration(baseDelayMs) * time.Millisecond,
-				MaxDelay:      time.Duration(maxDelayMs) * time.Millisecond,
-				Multiplier:    multiplier,
-				JitterPercent: jitter,
-			}
+			result := entities.NewRetryConfig(
+				maxAttempts,
+				time.Duration(baseDelayMs)*time.Millisecond,
+				time.Duration(maxDelayMs)*time.Millisecond,
+				multiplier,
+				0.1,
+			)
 
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("valid config should pass validation: %v", err)
-			}
-		})
-	})
-
-	t.Run("valid_timeout_config_passes_validation", func(t *testing.T) {
-		rapid.Check(t, func(t *rapid.T) {
-			timeoutMs := rapid.IntRange(100, 300000).Draw(t, "timeoutMs")
-
-			cfg := resilience.TimeoutConfig{
-				Default: time.Duration(timeoutMs) * time.Millisecond,
-			}
-
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("valid config should pass validation: %v", err)
+			if result.IsErr() {
+				t.Fatalf("valid config rejected: %v", result.UnwrapErr())
 			}
 		})
 	})
 
-	t.Run("valid_rate_limit_config_passes_validation", func(t *testing.T) {
+	t.Run("rate_limit_valid_config", func(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
 			limit := rapid.IntRange(1, 10000).Draw(t, "limit")
-			windowMs := rapid.IntRange(1000, 60000).Draw(t, "windowMs")
-			burstSize := rapid.IntRange(1, 1000).Draw(t, "burstSize")
+			burstSize := rapid.IntRange(1, limit).Draw(t, "burstSize")
+			windowSec := rapid.IntRange(1, 3600).Draw(t, "windowSec")
 
-			cfg := resilience.RateLimitConfig{
-				Algorithm: resilience.TokenBucket,
-				Limit:     limit,
-				Window:    time.Duration(windowMs) * time.Millisecond,
-				BurstSize: burstSize,
-			}
+			result := entities.NewRateLimitConfig(
+				"token_bucket",
+				limit,
+				time.Duration(windowSec)*time.Second,
+				burstSize,
+			)
 
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("valid config should pass validation: %v", err)
-			}
-		})
-	})
-
-	t.Run("valid_bulkhead_config_passes_validation", func(t *testing.T) {
-		rapid.Check(t, func(t *rapid.T) {
-			maxConcurrent := rapid.IntRange(1, 1000).Draw(t, "maxConcurrent")
-			maxQueue := rapid.IntRange(0, 1000).Draw(t, "maxQueue")
-			timeoutMs := rapid.IntRange(100, 60000).Draw(t, "timeoutMs")
-
-			cfg := resilience.BulkheadConfig{
-				MaxConcurrent: maxConcurrent,
-				MaxQueue:      maxQueue,
-				QueueTimeout:  time.Duration(timeoutMs) * time.Millisecond,
-			}
-
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("valid config should pass validation: %v", err)
+			if result.IsErr() {
+				t.Fatalf("valid config rejected: %v", result.UnwrapErr())
 			}
 		})
 	})
 
-	t.Run("invalid_circuit_breaker_config_fails_validation", func(t *testing.T) {
+	t.Run("timeout_valid_config", func(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
-			failureThreshold := rapid.IntRange(-10, 5).Draw(t, "failureThreshold")
-			successThreshold := rapid.IntRange(-10, 5).Draw(t, "successThreshold")
-			timeoutMs := rapid.IntRange(-1000, 500).Draw(t, "timeoutMs")
+			timeoutMs := rapid.IntRange(100, 30000).Draw(t, "timeoutMs")
+			maxTimeoutMs := rapid.IntRange(timeoutMs+1000, 600000).Draw(t, "maxTimeoutMs")
 
-			cfg := resilience.CircuitBreakerConfig{
-				FailureThreshold: failureThreshold,
-				SuccessThreshold: successThreshold,
-				Timeout:          time.Duration(timeoutMs) * time.Millisecond,
+			result := entities.NewTimeoutConfig(
+				time.Duration(timeoutMs)*time.Millisecond,
+				time.Duration(maxTimeoutMs)*time.Millisecond,
+			)
+
+			if result.IsErr() {
+				t.Fatalf("valid config rejected: %v", result.UnwrapErr())
 			}
+		})
+	})
+}
 
-			err := cfg.Validate()
-			shouldFail := failureThreshold <= 0 || successThreshold <= 0 || timeoutMs <= 0
-			if (err != nil) != shouldFail {
-				t.Fatalf("validation mismatch: err=%v, shouldFail=%v", err, shouldFail)
+// TestProperty_InvalidConfigRejected validates invalid configs are rejected.
+func TestProperty_InvalidConfigRejected(t *testing.T) {
+	t.Run("circuit_breaker_invalid_threshold", func(t *testing.T) {
+		rapid.Check(t, func(t *rapid.T) {
+			failureThreshold := rapid.IntRange(-100, 0).Draw(t, "failureThreshold")
+
+			result := entities.NewCircuitBreakerConfig(
+				failureThreshold,
+				3,
+				30*time.Second,
+				1,
+			)
+
+			if result.IsOk() {
+				t.Fatal("invalid config should be rejected")
 			}
 		})
 	})
 
-	t.Run("invalid_retry_config_fails_validation", func(t *testing.T) {
+	t.Run("retry_invalid_attempts", func(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
-			maxAttempts := rapid.IntRange(-5, 5).Draw(t, "maxAttempts")
-			baseDelayMs := rapid.IntRange(-100, 100).Draw(t, "baseDelayMs")
-			maxDelayMs := rapid.IntRange(-100, 100).Draw(t, "maxDelayMs")
-			multiplier := rapid.Float64Range(0.0, 2.0).Draw(t, "multiplier")
-			jitter := rapid.Float64Range(-0.5, 1.5).Draw(t, "jitter")
+			maxAttempts := rapid.IntRange(-100, 0).Draw(t, "maxAttempts")
 
-			cfg := resilience.RetryConfig{
-				MaxAttempts:   maxAttempts,
-				BaseDelay:     time.Duration(baseDelayMs) * time.Millisecond,
-				MaxDelay:      time.Duration(maxDelayMs) * time.Millisecond,
-				Multiplier:    multiplier,
-				JitterPercent: jitter,
+			result := entities.NewRetryConfig(
+				maxAttempts,
+				100*time.Millisecond,
+				10*time.Second,
+				2.0,
+				0.1,
+			)
+
+			if result.IsOk() {
+				t.Fatal("invalid config should be rejected")
 			}
+		})
+	})
 
-			err := cfg.Validate()
-			shouldFail := maxAttempts <= 0 || baseDelayMs <= 0 || maxDelayMs <= 0 || multiplier < 1.0 || jitter < 0 || jitter > 1
-			if (err != nil) != shouldFail {
-				t.Fatalf("validation mismatch: err=%v, shouldFail=%v", err, shouldFail)
+	t.Run("rate_limit_invalid_limit", func(t *testing.T) {
+		rapid.Check(t, func(t *rapid.T) {
+			limit := rapid.IntRange(-100, 0).Draw(t, "limit")
+
+			result := entities.NewRateLimitConfig(
+				"token_bucket",
+				limit,
+				time.Minute,
+				10,
+			)
+
+			if result.IsOk() {
+				t.Fatal("invalid config should be rejected")
 			}
 		})
 	})

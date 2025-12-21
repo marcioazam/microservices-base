@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/auth-platform/platform/resilience-service/internal/domain"
-	"github.com/auth-platform/platform/resilience-service/internal/infra/audit"
+	"github.com/auth-platform/platform/resilience-service/internal/infrastructure/observability"
 	"pgregory.net/rapid"
 )
 
@@ -28,11 +28,11 @@ func TestProperty_AuditEventRequiredFields(t *testing.T) {
 				Outcome:       "success",
 			}
 
-			hasRequired := audit.HasRequiredFields(event)
+			hasRequired := observability.HasRequiredAuditFields(event)
 			expectedHasRequired := id != "" && eventType != "" && correlationID != ""
 
 			if hasRequired != expectedHasRequired {
-				t.Fatalf("HasRequiredFields mismatch: got %v, expected %v", hasRequired, expectedHasRequired)
+				t.Fatalf("HasRequiredAuditFields mismatch: got %v, expected %v", hasRequired, expectedHasRequired)
 			}
 		})
 	})
@@ -49,7 +49,7 @@ func TestProperty_AuditEventRequiredFields(t *testing.T) {
 				CorrelationID: correlationID,
 			}
 
-			missing := audit.ValidateEvent(event)
+			missing := observability.ValidateAuditEvent(event)
 			foundID := false
 			for _, field := range missing {
 				if field == "id" {

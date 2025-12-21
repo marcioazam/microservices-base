@@ -160,3 +160,61 @@ func (h *HealthChecker) ReadinessHandler() http.HandlerFunc {
 		json.NewEncoder(w).Encode(response)
 	}
 }
+
+// HealthAggregator aggregates health checks from multiple sources.
+type HealthAggregator struct {
+	mu       sync.RWMutex
+	checkers []Checker
+	results  map[string]HealthCheck
+	onChange func(HealthCheck)
+}
+
+// NewHealthAggregator creates a new health aggregator.
+func NewHealthAggregator() *HealthAggregator {
+	return &HealthAggregator{
+		checkers: make([]Checker, 0),
+		results:  make(map[string]HealthCheck),
+	}
+}
+
+// RegisterChecker adds a health checker.
+func (a *HealthAggregator) RegisterChecker(name string, checker Checker) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.checkers = append(a.checkers, checker)
+}
+
+// OnChange sets a callback for status changes.
+func (a *HealthAggregator) OnChange(fn func(HealthCheck)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.onChange = fn
+}
+
+// GetStatus returns the current aggregated status without running checks.
+func (a *HealthAggregator) GetStatus() HealthStatus {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	for _, check := range a.results {
+		if check.Status == StatusUnhealthy {
+			return StatusUnhealthy
+		}
+	}
+	return StatusHealthy
+}
+
+// NewHealthyCheck creates a healthy check result.
+func NewHealthyCheck(name string) HealthCheck {
+	return HealthCheck{Name: name, Status: StatusHealthy}
+}
+
+// NewDegradedCheck creates a degraded check result.
+func NewDegradedCheck(name, message string) HealthCheck {
+	return HealthCheck{Name: name, Status: StatusDegraded, Message: message}
+}
+
+// NewUnhealthyCheck creates an unhealthy check result.
+func NewUnhealthyCheck(name, message string) HealthCheck {
+	return HealthCheck{Name: name, Status: StatusUnhealthy, Message: message}
+}

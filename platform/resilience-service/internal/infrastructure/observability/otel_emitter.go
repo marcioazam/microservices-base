@@ -5,10 +5,18 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/authcorp/libs/go/src/fault"
+	"github.com/auth-platform/platform/resilience-service/internal/domain/interfaces"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/valueobjects"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
+)
+
+// Ensure OTelEmitter implements interfaces.
+var (
+	_ interfaces.EventEmitter    = (*OTelEmitter)(nil)
+	_ interfaces.MetricsRecorder = (*OTelEmitter)(nil)
 )
 
 // OTelEmitter implements EventEmitter using OpenTelemetry.
@@ -138,8 +146,14 @@ func (o *OTelEmitter) emitPolicyEvent(ctx context.Context, event valueobjects.Po
 		slog.Int("version", event.Version))
 }
 
-// RecordExecution records execution metrics.
-func (o *OTelEmitter) RecordExecution(ctx context.Context, metrics valueobjects.ExecutionMetrics) {
+// EmitPolicyEvent emits a policy event (implements EventEmitter interface).
+func (o *OTelEmitter) EmitPolicyEvent(ctx context.Context, event valueobjects.PolicyEvent) error {
+	o.emitPolicyEvent(ctx, event)
+	return nil
+}
+
+// RecordExecution records execution metrics using shared type from libs/go.
+func (o *OTelEmitter) RecordExecution(ctx context.Context, metrics fault.ExecutionMetrics) {
 	ctx, span := o.tracer.Start(ctx, "metrics.record_execution")
 	defer span.End()
 
@@ -284,4 +298,29 @@ func (o *OTelEmitter) RecordBulkheadQueue(ctx context.Context, policyName string
 	o.logger.DebugContext(ctx, "bulkhead queue recorded",
 		slog.String("policy_name", policyName),
 		slog.Bool("queued", queued))
+}
+
+// RecordCacheStats records cache statistics (implements interfaces.MetricsRecorder).
+func (o *OTelEmitter) RecordCacheStats(ctx context.Context, hits, misses, evictions int64) {
+	ctx, span := o.tracer.Start(ctx, "metrics.record_cache_stats")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.Int64("cache.hits", hits),
+		attribute.Int64("cache.misses", misses),
+		attribute.Int64("cache.evictions", evictions),
+	)
+
+	// Calculate hit rate for logging
+	total := hits + misses
+	var hitRate float64
+	if total > 0 {
+		hitRate = float64(hits) / float64(total)
+	}
+
+	o.logger.DebugContext(ctx, "cache stats recorded",
+		slog.Int64("hits", hits),
+		slog.Int64("misses", misses),
+		slog.Int64("evictions", evictions),
+		slog.Float64("hit_rate", hitRate))
 }

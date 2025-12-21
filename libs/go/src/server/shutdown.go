@@ -144,3 +144,81 @@ func (g *GracefulServer) Run() error {
 		return nil
 	}
 }
+
+// DrainManager manages graceful shutdown with request draining.
+type DrainManager struct {
+	mu           sync.RWMutex
+	inFlight     int64
+	shuttingDown int32
+	done         chan struct{}
+}
+
+// NewDrainManager creates a new drain manager.
+func NewDrainManager() *DrainManager {
+	return &DrainManager{
+		done: make(chan struct{}),
+	}
+}
+
+// RequestStarted should be called when a request starts.
+func (m *DrainManager) RequestStarted() bool {
+	if m.shuttingDown == 1 {
+		return false
+	}
+	m.mu.Lock()
+	m.inFlight++
+	m.mu.Unlock()
+	return true
+}
+
+// RequestFinished should be called when a request finishes.
+func (m *DrainManager) RequestFinished() {
+	m.mu.Lock()
+	m.inFlight--
+	if m.inFlight == 0 && m.shuttingDown == 1 {
+		select {
+		case <-m.done:
+		default:
+			close(m.done)
+		}
+	}
+	m.mu.Unlock()
+}
+
+// Drain initiates graceful shutdown and waits for in-flight requests.
+func (m *DrainManager) Drain(ctx context.Context) error {
+	m.mu.Lock()
+	m.shuttingDown = 1
+	if m.inFlight == 0 {
+		select {
+		case <-m.done:
+		default:
+			close(m.done)
+		}
+	}
+	m.mu.Unlock()
+
+	select {
+	case <-m.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// IsShuttingDown returns true if shutdown has been initiated.
+func (m *DrainManager) IsShuttingDown() bool {
+	return m.shuttingDown == 1
+}
+
+// InFlightCount returns the number of in-flight requests.
+func (m *DrainManager) InFlightCount() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.inFlight
+}
+
+// Done returns a channel that is closed when shutdown is complete.
+func (m *DrainManager) Done() <-chan struct{} {
+	return m.done
+}

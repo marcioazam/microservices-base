@@ -27,7 +27,7 @@ func NewEventBuilder(emitter EventEmitter, serviceName string, correlationFn fun
 }
 
 // Build creates a ResilienceEvent with automatic ID, Timestamp, and Type.
-func (b *EventBuilder) Build(eventType ResilienceEventType, metadata map[string]any) ResilienceEvent {
+func (b *EventBuilder) Build(eventType EventType, metadata map[string]any) ResilienceEvent {
 	return ResilienceEvent{
 		ID:            GenerateEventID(),
 		Type:          eventType,
@@ -39,7 +39,7 @@ func (b *EventBuilder) Build(eventType ResilienceEventType, metadata map[string]
 }
 
 // BuildWithContext creates a ResilienceEvent with trace context propagation.
-func (b *EventBuilder) BuildWithContext(ctx context.Context, eventType ResilienceEventType, metadata map[string]any) ResilienceEvent {
+func (b *EventBuilder) BuildWithContext(ctx context.Context, eventType EventType, metadata map[string]any) ResilienceEvent {
 	event := b.Build(eventType, metadata)
 
 	// Extract trace context if available
@@ -53,7 +53,7 @@ func (b *EventBuilder) BuildWithContext(ctx context.Context, eventType Resilienc
 }
 
 // Emit builds and emits an event. Safe to call with nil emitter.
-func (b *EventBuilder) Emit(eventType ResilienceEventType, metadata map[string]any) {
+func (b *EventBuilder) Emit(eventType EventType, metadata map[string]any) {
 	if b == nil || b.emitter == nil {
 		return
 	}
@@ -62,7 +62,7 @@ func (b *EventBuilder) Emit(eventType ResilienceEventType, metadata map[string]a
 }
 
 // EmitWithContext builds and emits an event with trace context. Safe to call with nil emitter.
-func (b *EventBuilder) EmitWithContext(ctx context.Context, eventType ResilienceEventType, metadata map[string]any) {
+func (b *EventBuilder) EmitWithContext(ctx context.Context, eventType EventType, metadata map[string]any) {
 	if b == nil || b.emitter == nil {
 		return
 	}

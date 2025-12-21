@@ -1,0 +1,11 @@
+# 2025/12/20 11:11:10.591815 [TestLRUCacheTTLExpiration] [rapid] draw capacity: 5
+# 2025/12/20 11:11:10.592399 [TestLRUCacheTTLExpiration] [rapid] draw numPuts: 6
+# 2025/12/20 11:11:10.592399 [TestLRUCacheTTLExpiration] entry 0 should exist before TTL expiration
+# 
+v0.4.8#1426611161880737961
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x5

@@ -116,3 +116,70 @@ func Index[T any](i int) Optional[[]T, T] {
 		},
 	}
 }
+
+// Identity creates an identity lens.
+func Identity[S any]() Lens[S, S] {
+	return Lens[S, S]{
+		Get: func(s S) S { return s },
+		Set: func(_ S, s S) S { return s },
+	}
+}
+
+// First creates a lens for the first element of a pair.
+func First[A, B any]() Lens[struct{ First A; Second B }, A] {
+	type Pair = struct{ First A; Second B }
+	return Lens[Pair, A]{
+		Get: func(p Pair) A { return p.First },
+		Set: func(p Pair, a A) Pair { return Pair{First: a, Second: p.Second} },
+	}
+}
+
+// Second creates a lens for the second element of a pair.
+func Second[A, B any]() Lens[struct{ First A; Second B }, B] {
+	type Pair = struct{ First A; Second B }
+	return Lens[Pair, B]{
+		Get: func(p Pair) B { return p.Second },
+		Set: func(p Pair, b B) Pair { return Pair{First: p.First, Second: b} },
+	}
+}
+
+// MapAt creates a lens for a map value at a specific key with default.
+func MapAt[K comparable, V any](key K, defaultVal V) Lens[map[K]V, V] {
+	return Lens[map[K]V, V]{
+		Get: func(m map[K]V) V {
+			if v, ok := m[key]; ok {
+				return v
+			}
+			return defaultVal
+		},
+		Set: func(m map[K]V, v V) map[K]V {
+			result := make(map[K]V, len(m))
+			for k, val := range m {
+				result[k] = val
+			}
+			result[key] = v
+			return result
+		},
+	}
+}
+
+// SliceAt creates a lens for a slice element at a specific index with default.
+func SliceAt[T any](index int, defaultVal T) Lens[[]T, T] {
+	return Lens[[]T, T]{
+		Get: func(s []T) T {
+			if index >= 0 && index < len(s) {
+				return s[index]
+			}
+			return defaultVal
+		},
+		Set: func(s []T, v T) []T {
+			if index < 0 || index >= len(s) {
+				return s
+			}
+			result := make([]T, len(s))
+			copy(result, s)
+			result[index] = v
+			return result
+		},
+	}
+}

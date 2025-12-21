@@ -149,8 +149,27 @@ import (
 | Package | Purpose | Dependencies |
 |---------|---------|--------------|
 | `entities/` | Policy, CircuitBreakerConfig, RetryConfig | None (pure Go) |
-| `valueobjects/` | HealthStatus, PolicyEvent, ExecutionMetrics | None (pure Go) |
-| `interfaces/` | Repository, Executor, EventEmitter contracts | None (pure Go) |
+| `valueobjects/` | HealthStatus, PolicyEvent, DomainEvent | None (pure Go) |
+| `interfaces/` | Repository, Executor, EventEmitter, Logger, Tracer contracts | libs/go functional types |
+
+**Note**: `ExecutionMetrics` is imported from `libs/go/src/fault/metrics.go` to avoid duplication and ensure consistency across services.
+
+**Domain Interfaces**:
+- `PolicyRepository` - Type-safe policy persistence with `Option[T]` and `Result[T]`
+- `ResilienceExecutor` - Applies resilience patterns to operations
+- `TypedResilienceExecutor[T]` - Generic executor extending libs/go
+- `PolicyValidator` - Validates all config types (CircuitBreaker, Retry, Timeout, RateLimit, Bulkhead)
+- `MetricsRecorder` - Extends libs/go MetricsRecorder with cache stats
+- `Logger` - Structured logging with context propagation
+- `Tracer` - Distributed tracing with span management
+
+**Functional Error Handling**:
+Application services use `functional.Result[T]` and `functional.Option[T]` for type-safe error handling:
+- `CreatePolicy(ctx, name) Result[*Policy]` - Returns Result with created policy or error
+- `UpdatePolicy(ctx, policy) Result[*Policy]` - Returns Result with updated policy or error
+- `GetPolicy(ctx, name) Option[*Policy]` - Returns Option (Some/None) for nullable results
+- `ListPolicies(ctx) Result[[]*Policy]` - Returns Result with policy list or error
+- `DeletePolicy(ctx, name) error` - Standard error for delete operations
 
 **Domain Purity Validation**:
 ```go
@@ -197,7 +216,16 @@ if err != nil {
 
 ## 🛡️ Resilience Patterns (Failsafe-go Integration)
 
-**Circuit Breaker**:
+**Functional Error Handling**:
+The service uses `functional.Result[T]` and `functional.Option[T]` from `libs/go/src/functional` for type-safe error handling:
+
+```go
+// Creating a policy returns Result[*Policy]
+result := policyService.CreatePolicy(ctx, "api-service")
+if result.IsErr() {
+    return fmt.Errorf("failed to create policy: %w", result.UnwrapErr())
+}
+policy := result.Unw
 ```go
 policy, _ := entities.NewPolicy("api-service")
 cbConfig, _ := entities.NewCircuitBreakerConfig(5, 3, 30*time.Second, 1)
@@ -291,16 +319,17 @@ grpcurl -plaintext localhost:50056 grpc.health.v1.Health/Watch
 | `RESILIENCE_SERVER_HOST` | Service bind address | `0.0.0.0` | hostname_rfc1123\|ip |
 | `RESILIENCE_SERVER_PORT` | gRPC port | `50056` | 1024-65535 |
 | `RESILIENCE_REDIS_URL` | Redis connection URL | `redis://localhost:6379` | valid URL |
-| `RESILIENCE_REDIS_TLS_ENABLED` | Enable Redis TLS | `false` | boolean |
+| `RESILIENCE_REDIS_TLS_ENABLED` | Enable Redis TLS | `false` | boolean (**required** in production) |
 | `RESILIENCE_OPENTELEMETRY_ENDPOINT` | OTLP endpoint | `http://localhost:4317` | valid URL |
 | `RESILIENCE_OPENTELEMETRY_ENVIRONMENT` | Environment | `development` | development\|staging\|production |
 | `RESILIENCE_LOGGING_LEVEL` | Log level | `info` | debug\|info\|warn\|error |
 | `RESILIENCE_LOGGING_FORMAT` | Log format | `json` | json\|text |
 
-**Production Security**:
-- TLS required in production (`ENVIRONMENT=production`)
+**Production Security** (Enforced):
+- TLS **required** for Redis in production (`RESILIENCE_REDIS_TLS_ENABLED=true`)
+- TLS verification cannot be skipped in production
 - Insecure OTLP disabled in production
-- Redis TLS verification enforced
+- Configuration validation fails if security requirements not met
 
 ## 🧪 Testing Strategy (Comprehensive Coverage)
 
@@ -356,12 +385,15 @@ func ValidatePolicyPath(path, basePath string) error {
 }
 ```
 
-**TLS by Default**:
+**TLS Enforcement in Production**:
 ```go
-// Production enforces TLS
-if isProd() && config.Redis.TLSEnabled {
-    if !strings.HasPrefix(config.Redis.URL, "rediss://") {
-        return fmt.Errorf("production requires TLS: use rediss:// scheme")
+// Production enforces TLS for Redis - service will not start without it
+if isProd() {
+    if !config.Redis.TLSEnabled {
+        return fmt.Errorf("TLS must be enabled for Redis in production")
+    }
+    if config.Redis.TLSSkipVerify {
+        return fmt.Errorf("TLS verification cannot be skipped in production")
     }
 }
 ```
@@ -471,7 +503,7 @@ grpcurl -plaintext localhost:50056 resilience.v1.ResilienceService/GetHealth
 - **Single Responsibility**: Each component has one clear purpose
 
 ### ✅ Security Hardening
-- **TLS by Default**: Secure connections enforced in production
+- **TLS Mandatory in Production**: Redis TLS enforced, service fails to start without it
 - **Path Traversal Prevention**: All file operations validated
 - **Allowlist Validation**: Input validation uses allowlist patterns
 - **Secret Management**: Environment variables only, never hardcoded

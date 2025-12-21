@@ -4,31 +4,55 @@ package interfaces
 import (
 	"context"
 
+	"github.com/authcorp/libs/go/src/functional"
+	"github.com/authcorp/libs/go/src/fault"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/entities"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/valueobjects"
 )
 
-// ResiliencePolicy represents a complete resilience configuration.
-type ResiliencePolicy interface {
-	Name() string
-	Version() int
-	Execute(ctx context.Context, fn func() error) error
-	Validate() error
-}
-
-// PolicyRepository manages policy persistence and retrieval.
+// PolicyRepository manages policy persistence and retrieval with type-safe returns.
 type PolicyRepository interface {
-	Get(ctx context.Context, name string) (*entities.Policy, error)
-	Save(ctx context.Context, policy *entities.Policy) error
+	// Get retrieves a policy by name, returning Option for type-safe null handling.
+	Get(ctx context.Context, name string) functional.Option[*entities.Policy]
+
+	// Save persists a policy and returns Result for error handling.
+	Save(ctx context.Context, policy *entities.Policy) functional.Result[*entities.Policy]
+
+	// Delete removes a policy by name.
 	Delete(ctx context.Context, name string) error
-	List(ctx context.Context) ([]*entities.Policy, error)
+
+	// List returns all policies.
+	List(ctx context.Context) functional.Result[[]*entities.Policy]
+
+	// Exists checks if a policy exists.
+	Exists(ctx context.Context, name string) bool
+
+	// Watch returns a channel for policy change events.
 	Watch(ctx context.Context) (<-chan valueobjects.PolicyEvent, error)
 }
 
 // ResilienceExecutor applies resilience patterns to operations.
+// Extends the generic executor from libs/go with service-specific methods.
 type ResilienceExecutor interface {
+	// Execute runs an operation with resilience patterns.
 	Execute(ctx context.Context, policyName string, operation func() error) error
-	ExecuteWithResult(ctx context.Context, policyName string, operation func() (any, error)) (any, error)
+
+	// ExecuteWithResult runs an operation returning a typed result.
+	ExecuteWithResult(ctx context.Context, policyName string, operation func() (any, error)) functional.Result[any]
+
+	// RegisterPolicy registers a policy with the executor.
+	RegisterPolicy(policy *entities.Policy) error
+
+	// UnregisterPolicy removes a policy from the executor.
+	UnregisterPolicy(policyName string)
+
+	// GetPolicyNames returns all registered policy names.
+	GetPolicyNames() []string
+}
+
+// TypedResilienceExecutor is a generic executor for type-safe operations.
+type TypedResilienceExecutor[T any] interface {
+	fault.ResilienceExecutor[T]
 }
 
 // HealthChecker provides health status for components.
@@ -37,28 +61,29 @@ type HealthChecker interface {
 	Name() string
 }
 
-// EventEmitter publishes domain events.
+// EventEmitter publishes domain events with type safety.
 type EventEmitter interface {
 	Emit(ctx context.Context, event valueobjects.DomainEvent) error
+	EmitPolicyEvent(ctx context.Context, event valueobjects.PolicyEvent) error
 }
 
 // PolicyValidator validates policy configurations.
 type PolicyValidator interface {
-	Validate(policy *entities.Policy) error
-	ValidateCircuitBreaker(config *entities.CircuitBreakerConfig) error
-	ValidateRetry(config *entities.RetryConfig) error
-	ValidateTimeout(config *entities.TimeoutConfig) error
-	ValidateRateLimit(config *entities.RateLimitConfig) error
-	ValidateBulkhead(config *entities.BulkheadConfig) error
+	Validate(policy *entities.Policy) functional.Result[*entities.Policy]
+	ValidateCircuitBreaker(config *entities.CircuitBreakerConfig) functional.Result[*entities.CircuitBreakerConfig]
+	ValidateRetry(config *entities.RetryConfig) functional.Result[*entities.RetryConfig]
+	ValidateTimeout(config *entities.TimeoutConfig) functional.Result[*entities.TimeoutConfig]
+	ValidateRateLimit(config *entities.RateLimitConfig) functional.Result[*entities.RateLimitConfig]
+	ValidateBulkhead(config *entities.BulkheadConfig) functional.Result[*entities.BulkheadConfig]
 }
 
 // MetricsRecorder records resilience execution metrics.
+// Extends the shared MetricsRecorder from libs/go.
 type MetricsRecorder interface {
-	RecordExecution(ctx context.Context, metrics valueobjects.ExecutionMetrics)
-	RecordCircuitState(ctx context.Context, policyName string, state string)
-	RecordRetryAttempt(ctx context.Context, policyName string, attempt int)
-	RecordRateLimit(ctx context.Context, policyName string, limited bool)
-	RecordBulkheadQueue(ctx context.Context, policyName string, queued bool)
+	fault.MetricsRecorder
+
+	// RecordCacheStats records cache statistics.
+	RecordCacheStats(ctx context.Context, hits, misses, evictions int64)
 }
 
 // Logger provides structured logging interface.

@@ -2,6 +2,8 @@ package collections
 
 import (
 	"container/heap"
+	"iter"
+	"sort"
 	"sync"
 
 	"github.com/authcorp/libs/go/src/functional"
@@ -102,4 +104,57 @@ func (pq *PriorityQueue[T]) ToSlice() []T {
 	result := make([]T, len(pq.items.items))
 	copy(result, pq.items.items)
 	return result
+}
+
+// All returns a Go 1.23+ iterator over elements in priority order.
+func (pq *PriorityQueue[T]) All() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		pq.mu.RLock()
+		// Copy and sort by priority
+		items := make([]T, len(pq.items.items))
+		copy(items, pq.items.items)
+		pq.mu.RUnlock()
+
+		sort.Slice(items, func(i, j int) bool {
+			return pq.less(items[i], items[j])
+		})
+
+		for _, item := range items {
+			if !yield(item) {
+				return
+			}
+		}
+	}
+}
+
+// Collect returns all elements as a slice in priority order.
+func (pq *PriorityQueue[T]) Collect() []T {
+	var result []T
+	for item := range pq.All() {
+		result = append(result, item)
+	}
+	return result
+}
+
+// MinHeap creates a min-heap priority queue for ordered types.
+func MinHeap[T interface{ ~int | ~int64 | ~float64 | ~string }]() *PriorityQueue[T] {
+	return NewPriorityQueue(func(a, b T) bool { return a < b })
+}
+
+// MaxHeap creates a max-heap priority queue for ordered types.
+func MaxHeap[T interface{ ~int | ~int64 | ~float64 | ~string }]() *PriorityQueue[T] {
+	return NewPriorityQueue(func(a, b T) bool { return a > b })
+}
+
+// PriorityItem wraps a value with a priority.
+type PriorityItem[T any] struct {
+	Value    T
+	Priority int
+}
+
+// NewPriorityQueueWithPriority creates a priority queue using PriorityItem.
+func NewPriorityQueueWithPriority[T any]() *PriorityQueue[PriorityItem[T]] {
+	return NewPriorityQueue(func(a, b PriorityItem[T]) bool {
+		return a.Priority > b.Priority // Higher priority first
+	})
 }

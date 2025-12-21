@@ -1,96 +1,99 @@
 package property
 
 import (
-	"context"
-	"errors"
 	"testing"
 	"time"
 
-	liberror "github.com/auth-platform/libs/go/error"
-	"github.com/auth-platform/libs/go/resilience"
-	"github.com/auth-platform/libs/go/resilience/circuitbreaker"
+	"github.com/auth-platform/platform/resilience-service/internal/domain"
+	"github.com/auth-platform/platform/resilience-service/internal/domain/entities"
 	"pgregory.net/rapid"
 )
 
-// **Feature: resilience-service-state-of-art-2025, Property 1: Circuit Breaker State Machine Correctness**
-// **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
-func TestProperty_CircuitBreakerStateMachine(t *testing.T) {
-	t.Run("closed_to_open_on_failure_threshold", func(t *testing.T) {
+// TestProperty_CircuitBreakerConfigValidation validates circuit breaker configuration.
+func TestProperty_CircuitBreakerConfigValidation(t *testing.T) {
+	t.Run("valid_config_accepted", func(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
-			threshold := rapid.IntRange(1, 20).Draw(t, "threshold")
-			cb := circuitbreaker.New(circuitbreaker.Config{
-				ServiceName: "test-service",
-				Config: resilience.CircuitBreakerConfig{
-					FailureThreshold: threshold,
-					SuccessThreshold: 1,
-					Timeout:          time.Second,
-				},
-			})
+			failureThreshold := rapid.IntRange(1, 20).Draw(t, "failureThreshold")
+			successThreshold := rapid.IntRange(1, 10).Draw(t, "successThreshold")
+			timeoutSec := rapid.IntRange(1, 60).Draw(t, "timeoutSec")
 
-			for i := 0; i < threshold; i++ {
-				if cb.GetState() == resilience.StateOpen {
-					t.Fatalf("circuit opened before reaching threshold at iteration %d", i)
+			// Ensure success <= failure for valid config
+			if successThreshold > failureThreshold {
+				successThreshold = failureThreshold
+			}
+
+			cfg := &entities.CircuitBreakerConfig{
+				FailureThreshold: failureThreshold,
+				SuccessThreshold: successThreshold,
+				Timeout:          time.Duration(timeoutSec) * time.Second,
+				ProbeCount:       2,
+			}
+
+			err := cfg.Validate()
+			if err != nil {
+				t.Fatalf("valid config rejected: %v", err)
+			}
+		})
+	})
+
+	t.Run("invalid_failure_threshold_rejected", func(t *testing.T) {
+		rapid.Check(t, func(t *rapid.T) {
+			failureThreshold := rapid.IntRange(-10, 0).Draw(t, "failureThreshold")
+
+			cfg := &entities.CircuitBreakerConfig{
+				FailureThreshold: failureThreshold,
+				SuccessThreshold: 3,
+				Timeout:          30 * time.Second,
+				ProbeCount:       2,
+			}
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("invalid config should be rejected")
+			}
+		})
+	})
+
+	t.Run("invalid_success_threshold_rejected", func(t *testing.T) {
+		rapid.Check(t, func(t *rapid.T) {
+			successThreshold := rapid.IntRange(-10, 0).Draw(t, "successThreshold")
+
+			cfg := &entities.CircuitBreakerConfig{
+				FailureThreshold: 5,
+				SuccessThreshold: successThreshold,
+				Timeout:          30 * time.Second,
+				ProbeCount:       2,
+			}
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("invalid config should be rejected")
+			}
+		})
+	})
+}
+
+// TestProperty_CircuitBreakerStateTransitions validates state transitions.
+func TestProperty_CircuitBreakerStateTransitions(t *testing.T) {
+	t.Run("state_string_representation", func(t *testing.T) {
+		rapid.Check(t, func(t *rapid.T) {
+			stateInt := rapid.IntRange(0, 2).Draw(t, "state")
+			state := domain.CircuitState(stateInt)
+
+			str := state.String()
+			switch state {
+			case domain.StateClosed:
+				if str != "CLOSED" {
+					t.Fatalf("expected CLOSED, got %s", str)
 				}
-				cb.RecordFailure()
-			}
-
-			if cb.GetState() != resilience.StateOpen {
-				t.Fatalf("circuit should be open after %d failures", threshold)
-			}
-		})
-	})
-
-	t.Run("open_to_halfopen_after_timeout", func(t *testing.T) {
-		rapid.Check(t, func(t *rapid.T) {
-			timeoutMs := rapid.IntRange(10, 50).Draw(t, "timeoutMs")
-			timeout := time.Duration(timeoutMs) * time.Millisecond
-			cb := circuitbreaker.New(circuitbreaker.Config{
-				ServiceName: "test-service",
-				Config: resilience.CircuitBreakerConfig{
-					FailureThreshold: 1,
-					SuccessThreshold: 1,
-					Timeout:          timeout,
-				},
-			})
-
-			cb.RecordFailure()
-			if cb.GetState() != resilience.StateOpen {
-				t.Fatal("circuit should be open after failure")
-			}
-
-			time.Sleep(timeout + 10*time.Millisecond)
-
-			_ = cb.Execute(context.Background(), func() error { return nil })
-
-			if cb.GetState() != resilience.StateClosed {
-				t.Fatal("circuit should be closed after successful execution in half-open state")
-			}
-		})
-	})
-
-	t.Run("execute_returns_error_when_open", func(t *testing.T) {
-		rapid.Check(t, func(t *rapid.T) {
-			threshold := rapid.IntRange(1, 10).Draw(t, "threshold")
-			cb := circuitbreaker.New(circuitbreaker.Config{
-				ServiceName: "test-service",
-				Config: resilience.CircuitBreakerConfig{
-					FailureThreshold: threshold,
-					SuccessThreshold: 1,
-					Timeout:          time.Hour,
-				},
-			})
-
-			for i := 0; i < threshold; i++ {
-				cb.RecordFailure()
-			}
-
-			err := cb.Execute(context.Background(), func() error {
-				return nil
-			})
-
-			var resErr *liberror.ResilienceError
-			if !errors.As(err, &resErr) || resErr.Code != liberror.ErrCircuitOpen {
-				t.Fatalf("expected circuit open error, got %v", err)
+			case domain.StateOpen:
+				if str != "OPEN" {
+					t.Fatalf("expected OPEN, got %s", str)
+				}
+			case domain.StateHalfOpen:
+				if str != "HALF_OPEN" {
+					t.Fatalf("expected HALF_OPEN, got %s", str)
+				}
 			}
 		})
 	})

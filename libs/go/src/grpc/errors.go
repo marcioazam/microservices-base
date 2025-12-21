@@ -3,55 +3,55 @@ package grpc
 import (
 	"time"
 
-	"github.com/authcorp/libs/go/src/resilience"
+	"github.com/authcorp/libs/go/src/fault"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// ToGRPCError converts a resilience error to gRPC status.
+// ToGRPCError converts a fault error to gRPC status.
 func ToGRPCError(err error) error {
 	if err == nil {
 		return nil
 	}
 
 	// Check specific error types
-	if resilience.IsCircuitOpen(err) {
-		circuitErr, _ := resilience.AsCircuitOpenError(err)
+	if fault.IsCircuitOpen(err) {
+		circuitErr, _ := fault.AsCircuitOpenError(err)
 		return status.Errorf(codes.Unavailable,
 			"circuit breaker open for service %s: %s",
 			circuitErr.Service, circuitErr.Message)
 	}
 
-	if resilience.IsRateLimited(err) {
-		rateErr, _ := resilience.AsRateLimitError(err)
+	if fault.IsRateLimited(err) {
+		rateErr, _ := fault.AsRateLimitError(err)
 		return status.Errorf(codes.ResourceExhausted,
 			"rate limit exceeded for service %s: limit %d per %v",
 			rateErr.Service, rateErr.Limit, rateErr.Window)
 	}
 
-	if resilience.IsTimeout(err) {
-		timeoutErr, _ := resilience.AsTimeoutError(err)
+	if fault.IsTimeout(err) {
+		timeoutErr, _ := fault.AsTimeoutError(err)
 		return status.Errorf(codes.DeadlineExceeded,
 			"timeout after %v for service %s",
 			timeoutErr.Timeout, timeoutErr.Service)
 	}
 
-	if resilience.IsBulkheadFull(err) {
-		bulkheadErr, _ := resilience.AsBulkheadFullError(err)
+	if fault.IsBulkheadFull(err) {
+		bulkheadErr, _ := fault.AsBulkheadFullError(err)
 		return status.Errorf(codes.ResourceExhausted,
 			"bulkhead full for service %s: max %d concurrent",
 			bulkheadErr.Service, bulkheadErr.MaxConcurrent)
 	}
 
-	if resilience.IsRetryExhausted(err) {
-		retryErr, _ := resilience.AsRetryExhaustedError(err)
+	if fault.IsRetryExhausted(err) {
+		retryErr, _ := fault.AsRetryExhaustedError(err)
 		return status.Errorf(codes.Aborted,
 			"retry exhausted after %d attempts for service %s",
 			retryErr.Attempts, retryErr.Service)
 	}
 
-	if resilience.IsInvalidPolicy(err) {
-		policyErr, _ := resilience.AsInvalidPolicyError(err)
+	if fault.IsInvalidPolicy(err) {
+		policyErr, _ := fault.AsInvalidPolicyError(err)
 		return status.Errorf(codes.InvalidArgument,
 			"invalid policy: %s", policyErr.Field)
 	}
@@ -60,7 +60,7 @@ func ToGRPCError(err error) error {
 	return status.Errorf(codes.Internal, err.Error())
 }
 
-// FromGRPCError converts a gRPC status to resilience error.
+// FromGRPCError converts a gRPC status to fault error.
 func FromGRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -73,54 +73,88 @@ func FromGRPCError(err error) error {
 
 	switch st.Code() {
 	case codes.Unavailable:
-		return resilience.NewCircuitOpenError("", "", time.Time{}, 0, 0)
+		return fault.NewCircuitOpenError("", "", time.Time{}, 0, 0)
 	case codes.ResourceExhausted:
-		return resilience.NewRateLimitError("", "", 0, 0, 0)
+		return fault.NewRateLimitError("", "", 0, 0, 0)
 	case codes.DeadlineExceeded:
-		return resilience.NewTimeoutError("", "", 0, 0, nil)
+		return fault.NewTimeoutError("", "", 0, 0, nil)
 	case codes.Aborted:
-		return resilience.NewRetryExhaustedError("", "", 0, 0, nil)
+		return fault.NewRetryExhaustedError("", "", 0, 0, nil)
 	case codes.InvalidArgument:
-		return resilience.NewInvalidPolicyError("", nil, "")
+		return fault.NewInvalidPolicyError("", nil, "")
 	default:
 		return err
 	}
 }
 
-// ErrorCodeToGRPC maps resilience error codes to gRPC codes.
-func ErrorCodeToGRPC(code resilience.ErrorCode) codes.Code {
+// ErrorCodeToGRPC maps fault error codes to gRPC codes.
+func ErrorCodeToGRPC(code fault.ErrorCode) codes.Code {
 	switch code {
-	case resilience.ErrCodeCircuitOpen:
+	case fault.ErrCodeCircuitOpen:
 		return codes.Unavailable
-	case resilience.ErrCodeRateLimited:
+	case fault.ErrCodeRateLimited:
 		return codes.ResourceExhausted
-	case resilience.ErrCodeTimeout:
+	case fault.ErrCodeTimeout:
 		return codes.DeadlineExceeded
-	case resilience.ErrCodeBulkheadFull:
+	case fault.ErrCodeBulkheadFull:
 		return codes.ResourceExhausted
-	case resilience.ErrCodeRetryExhausted:
+	case fault.ErrCodeRetryExhausted:
 		return codes.Aborted
-	case resilience.ErrCodeInvalidPolicy:
+	case fault.ErrCodeInvalidPolicy:
 		return codes.InvalidArgument
 	default:
 		return codes.Internal
 	}
 }
 
-// GRPCToErrorCode maps gRPC codes to resilience error codes.
-func GRPCToErrorCode(code codes.Code) resilience.ErrorCode {
+// GRPCToErrorCode maps gRPC codes to fault error codes.
+func GRPCToErrorCode(code codes.Code) fault.ErrorCode {
 	switch code {
 	case codes.Unavailable:
-		return resilience.ErrCodeCircuitOpen
+		return fault.ErrCodeCircuitOpen
 	case codes.ResourceExhausted:
-		return resilience.ErrCodeRateLimited
+		return fault.ErrCodeRateLimited
 	case codes.DeadlineExceeded:
-		return resilience.ErrCodeTimeout
+		return fault.ErrCodeTimeout
 	case codes.Aborted:
-		return resilience.ErrCodeRetryExhausted
+		return fault.ErrCodeRetryExhausted
 	case codes.InvalidArgument:
-		return resilience.ErrCodeInvalidPolicy
+		return fault.ErrCodeInvalidPolicy
 	default:
 		return ""
 	}
+}
+
+// ToGRPCStatus converts a fault error to a gRPC status.
+func ToGRPCStatus(err error) *status.Status {
+	if err == nil {
+		return status.New(codes.OK, "")
+	}
+	grpcErr := ToGRPCError(err)
+	st, _ := status.FromError(grpcErr)
+	return st
+}
+
+// IsUnavailable checks if the error represents an unavailable service.
+func IsUnavailable(err error) bool {
+	st, ok := status.FromError(ToGRPCError(err))
+	return ok && st.Code() == codes.Unavailable
+}
+
+// IsResourceExhausted checks if the error represents resource exhaustion.
+func IsResourceExhausted(err error) bool {
+	st, ok := status.FromError(ToGRPCError(err))
+	return ok && st.Code() == codes.ResourceExhausted
+}
+
+// IsDeadlineExceeded checks if the error represents a deadline exceeded.
+func IsDeadlineExceeded(err error) bool {
+	st, ok := status.FromError(ToGRPCError(err))
+	return ok && st.Code() == codes.DeadlineExceeded
+}
+
+// IsInvalidArgument checks if the error represents an invalid argument.
+func IsInvalidArgument(err error) bool {
+	st, ok := status.FromError(ToGRPCError(err))
+	return ok && st.Code() == codes.InvalidArgument
 }

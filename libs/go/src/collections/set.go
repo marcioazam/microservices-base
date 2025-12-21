@@ -1,6 +1,9 @@
 package collections
 
-import "sync"
+import (
+	"iter"
+	"sync"
+)
 
 // Set is a generic set implementation.
 type Set[T comparable] struct {
@@ -79,6 +82,24 @@ func (s *Set[T]) Iterator() Iterator[T] {
 	return FromSlice(s.ToSlice())
 }
 
+// All returns a Go 1.23+ iterator over the set elements.
+func (s *Set[T]) All() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for item := range s.items {
+			if !yield(item) {
+				return
+			}
+		}
+	}
+}
+
+// Collect returns all elements as a slice (alias for ToSlice).
+func (s *Set[T]) Collect() []T {
+	return s.ToSlice()
+}
+
 // Union returns a new set with items from both sets.
 func (s *Set[T]) Union(other *Set[T]) *Set[T] {
 	result := NewSet[T]()
@@ -135,4 +156,86 @@ func (s *Set[T]) Equals(other *Set[T]) bool {
 		return false
 	}
 	return s.IsSubset(other)
+}
+
+// IsSuperset returns true if s contains all elements of other.
+func (s *Set[T]) IsSuperset(other *Set[T]) bool {
+	return other.IsSubset(s)
+}
+
+// SymmetricDifference returns elements in either set but not both.
+func (s *Set[T]) SymmetricDifference(other *Set[T]) *Set[T] {
+	s.mu.RLock()
+	other.mu.RLock()
+	defer s.mu.RUnlock()
+	defer other.mu.RUnlock()
+
+	result := NewSet[T]()
+	for item := range s.items {
+		if _, exists := other.items[item]; !exists {
+			result.items[item] = struct{}{}
+		}
+	}
+	for item := range other.items {
+		if _, exists := s.items[item]; !exists {
+			result.items[item] = struct{}{}
+		}
+	}
+	return result
+}
+
+// Clone returns a copy of the set.
+func (s *Set[T]) Clone() *Set[T] {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := NewSet[T]()
+	for item := range s.items {
+		result.items[item] = struct{}{}
+	}
+	return result
+}
+
+// Filter returns a new set with elements that satisfy the predicate.
+func (s *Set[T]) Filter(predicate func(T) bool) *Set[T] {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := NewSet[T]()
+	for item := range s.items {
+		if predicate(item) {
+			result.items[item] = struct{}{}
+		}
+	}
+	return result
+}
+
+// SetMap applies fn to each element and returns a new set with the results.
+func SetMap[T, U comparable](s *Set[T], fn func(T) U) *Set[U] {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := NewSet[U]()
+	for item := range s.items {
+		result.items[fn(item)] = struct{}{}
+	}
+	return result
+}
+
+// SetOf creates a new Set from the given elements (variadic constructor).
+func SetOf[T comparable](elements ...T) *Set[T] {
+	s := NewSet[T]()
+	for _, e := range elements {
+		s.items[e] = struct{}{}
+	}
+	return s
+}
+
+// ForEach applies fn to each element in the set.
+func (s *Set[T]) ForEach(fn func(T)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for item := range s.items {
+		fn(item)
+	}
 }

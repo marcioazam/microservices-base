@@ -1,15 +1,24 @@
 go 1.25.5
 
 use (
+	./codec
 	./collections
 	./concurrency
+	./config
+	./domain
 	./events
+	./fault
 	./functional
-	./grpc
+	./http
+	./idempotency
+	./observability
 	./optics
+	./pagination
 	./patterns
-	./resilience
+	./security
 	./server
 	./testing
-	./utils
+	./validation
+	./versioning
+	./workerpool
 )

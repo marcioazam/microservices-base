@@ -85,3 +85,136 @@ func Uncurry[A, B, C any](fn func(A) func(B) C) func(A, B) C {
 		return fn(a)(b)
 	}
 }
+
+// Stage is a processing stage that may fail.
+type Stage[T any] func(T) (T, error)
+
+// StagedPipeline is a pipeline with error handling stages.
+type StagedPipeline[T any] struct {
+	stages []Stage[T]
+}
+
+// NewStagedPipeline creates a new staged pipeline.
+func NewStagedPipeline[T any]() *StagedPipeline[T] {
+	return &StagedPipeline[T]{stages: make([]Stage[T], 0)}
+}
+
+// Use adds a stage that cannot fail.
+func (p *StagedPipeline[T]) Use(stage func(T) T) *StagedPipeline[T] {
+	p.stages = append(p.stages, func(t T) (T, error) {
+		return stage(t), nil
+	})
+	return p
+}
+
+// UseWithError adds a stage that may fail.
+func (p *StagedPipeline[T]) UseWithError(stage func(T) (T, error)) *StagedPipeline[T] {
+	p.stages = append(p.stages, stage)
+	return p
+}
+
+// UseIf adds a conditional stage.
+func (p *StagedPipeline[T]) UseIf(predicate func(T) bool, stage func(T) T) *StagedPipeline[T] {
+	p.stages = append(p.stages, func(t T) (T, error) {
+		if predicate(t) {
+			return stage(t), nil
+		}
+		return t, nil
+	})
+	return p
+}
+
+// UseIfWithError adds a conditional stage that may fail.
+func (p *StagedPipeline[T]) UseIfWithError(predicate func(T) bool, stage func(T) (T, error)) *StagedPipeline[T] {
+	p.stages = append(p.stages, func(t T) (T, error) {
+		if predicate(t) {
+			return stage(t)
+		}
+		return t, nil
+	})
+	return p
+}
+
+// Execute runs all stages in order.
+func (p *StagedPipeline[T]) Execute(input T) (T, error) {
+	current := input
+	for _, stage := range p.stages {
+		result, err := stage(current)
+		if err != nil {
+			return current, err
+		}
+		current = result
+	}
+	return current, nil
+}
+
+// Compose merges another pipeline's stages.
+func (p *StagedPipeline[T]) Compose(other *StagedPipeline[T]) *StagedPipeline[T] {
+	p.stages = append(p.stages, other.stages...)
+	return p
+}
+
+// Clone creates a copy of the pipeline.
+func (p *StagedPipeline[T]) Clone() *StagedPipeline[T] {
+	stages := make([]Stage[T], len(p.stages))
+	copy(stages, p.stages)
+	return &StagedPipeline[T]{stages: stages}
+}
+
+// Len returns the number of stages.
+func (p *StagedPipeline[T]) Len() int {
+	return len(p.stages)
+}
+
+// Clear removes all stages.
+func (p *StagedPipeline[T]) Clear() *StagedPipeline[T] {
+	p.stages = make([]Stage[T], 0)
+	return p
+}
+
+// ThenStaged creates a function that runs first pipeline then transforms and runs second.
+func ThenStaged[T, U any](first *StagedPipeline[T], transform func(T) U, second *StagedPipeline[U]) func(T) (U, error) {
+	return func(input T) (U, error) {
+		result, err := first.Execute(input)
+		if err != nil {
+			var zero U
+			return zero, err
+		}
+		return second.Execute(transform(result))
+	}
+}
+
+// PipelineMap creates a function that maps slice values.
+func PipelineMap[T, U any](fn func(T) U) func([]T) []U {
+	return func(items []T) []U {
+		result := make([]U, len(items))
+		for i, item := range items {
+			result[i] = fn(item)
+		}
+		return result
+	}
+}
+
+// PipelineFilter creates a function that filters slice values.
+func PipelineFilter[T any](predicate func(T) bool) func([]T) []T {
+	return func(items []T) []T {
+		result := make([]T, 0)
+		for _, item := range items {
+			if predicate(item) {
+				result = append(result, item)
+			}
+		}
+		return result
+	}
+}
+
+// PipelineReduce creates a function that reduces slice values.
+func PipelineReduce[T, U any](initial U, fn func(U, T) U) func([]T) U {
+	return func(items []T) U {
+		result := initial
+		for _, item := range items {
+			result = fn(result, item)
+		}
+		return result
+	}
+}

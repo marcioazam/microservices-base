@@ -1,0 +1,3 @@
+# 2025/12/20 11:39:14.820555 [TestCircuitOpenReturnsErr] failed to create circuit breaker: [INVALID_POLICY] : invalid policy: HalfOpenRequests
+# 
+v0.4.8#6911275101086295572

@@ -111,52 +111,6 @@ func (p PolicyEvent) AggregateID() string {
 	return p.PolicyName
 }
 
-// ExecutionMetrics captures resilience execution statistics.
-type ExecutionMetrics struct {
-	PolicyName      string        `json:"policy_name"`
-	ExecutionTime   time.Duration `json:"execution_time"`
-	Success         bool          `json:"success"`
-	CircuitState    string        `json:"circuit_state,omitempty"`
-	RetryAttempts   int           `json:"retry_attempts,omitempty"`
-	RateLimited     bool          `json:"rate_limited,omitempty"`
-	BulkheadQueued  bool          `json:"bulkhead_queued,omitempty"`
-	OccurredAt      time.Time     `json:"timestamp"`
-}
-
-// NewExecutionMetrics creates new execution metrics.
-func NewExecutionMetrics(policyName string, executionTime time.Duration, success bool) ExecutionMetrics {
-	return ExecutionMetrics{
-		PolicyName:    policyName,
-		ExecutionTime: executionTime,
-		Success:       success,
-		OccurredAt:    time.Now().UTC(),
-	}
-}
-
-// WithCircuitState adds circuit breaker state to metrics.
-func (e ExecutionMetrics) WithCircuitState(state string) ExecutionMetrics {
-	e.CircuitState = state
-	return e
-}
-
-// WithRetryAttempts adds retry attempts to metrics.
-func (e ExecutionMetrics) WithRetryAttempts(attempts int) ExecutionMetrics {
-	e.RetryAttempts = attempts
-	return e
-}
-
-// WithRateLimit adds rate limiting information to metrics.
-func (e ExecutionMetrics) WithRateLimit(limited bool) ExecutionMetrics {
-	e.RateLimited = limited
-	return e
-}
-
-// WithBulkheadQueue adds bulkhead queue information to metrics.
-func (e ExecutionMetrics) WithBulkheadQueue(queued bool) ExecutionMetrics {
-	e.BulkheadQueued = queued
-	return e
-}
-
 // DomainEvent represents a generic domain event.
 type DomainEvent interface {
 	EventID() string

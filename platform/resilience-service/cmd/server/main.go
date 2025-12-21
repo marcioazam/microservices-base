@@ -7,9 +7,8 @@ import (
 	"os"
 
 	"github.com/auth-platform/platform/resilience-service/internal/application"
-	"github.com/auth-platform/platform/resilience-service/internal/domain/entities"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/interfaces"
-	"github.com/auth-platform/platform/resilience-service/internal/domain/valueobjects"
+	"github.com/auth-platform/platform/resilience-service/internal/domain/validators"
 	"github.com/auth-platform/platform/resilience-service/internal/infrastructure/config"
 	"github.com/auth-platform/platform/resilience-service/internal/infrastructure/observability"
 	"github.com/auth-platform/platform/resilience-service/internal/infrastructure/repositories"
@@ -88,15 +87,13 @@ func NewOTelEmitter(tracer trace.Tracer, logger *slog.Logger) (interfaces.EventE
 
 // NewRedisRepository creates a Redis-based policy repository.
 func NewRedisRepository(cfg *config.Config, logger *slog.Logger) (interfaces.PolicyRepository, error) {
-	// Create mock metrics recorder for now
-	metrics := &mockMetricsRecorder{}
+	metrics := observability.NewMetricsRecorder()
 	return repositories.NewRedisRepository(&cfg.Redis, logger, metrics)
 }
 
 // NewFailsafeExecutor creates a failsafe-go based resilience executor.
 func NewFailsafeExecutor(logger *slog.Logger) interfaces.ResilienceExecutor {
-	// Create mock metrics recorder for now
-	metrics := &mockMetricsRecorder{}
+	metrics := observability.NewMetricsRecorder()
 	return resilience.NewFailsafeExecutor(metrics, logger)
 }
 
@@ -108,8 +105,7 @@ func NewHealthCheckers() []interfaces.HealthChecker {
 
 // NewPolicyValidator creates a policy validator.
 func NewPolicyValidator() interfaces.PolicyValidator {
-	// Return mock validator for now
-	return &mockPolicyValidator{}
+	return validators.NewPolicyValidator()
 }
 
 // SetupObservability configures OpenTelemetry.
@@ -149,21 +145,3 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelInfo
 	}
 }
-
-// Mock implementations for missing interfaces
-type mockMetricsRecorder struct{}
-
-func (m *mockMetricsRecorder) RecordExecution(ctx context.Context, metrics valueobjects.ExecutionMetrics) {}
-func (m *mockMetricsRecorder) RecordCircuitState(ctx context.Context, policyName string, state string) {}
-func (m *mockMetricsRecorder) RecordRetryAttempt(ctx context.Context, policyName string, attempt int) {}
-func (m *mockMetricsRecorder) RecordRateLimit(ctx context.Context, policyName string, limited bool) {}
-func (m *mockMetricsRecorder) RecordBulkheadQueue(ctx context.Context, policyName string, queued bool) {}
-
-type mockPolicyValidator struct{}
-
-func (m *mockPolicyValidator) Validate(policy *entities.Policy) error { return nil }
-func (m *mockPolicyValidator) ValidateCircuitBreaker(config *entities.CircuitBreakerConfig) error { return nil }
-func (m *mockPolicyValidator) ValidateRetry(config *entities.RetryConfig) error { return nil }
-func (m *mockPolicyValidator) ValidateTimeout(config *entities.TimeoutConfig) error { return nil }
-func (m *mockPolicyValidator) ValidateRateLimit(config *entities.RateLimitConfig) error { return nil }
-func (m *mockPolicyValidator) ValidateBulkhead(config *entities.BulkheadConfig) error { return nil }

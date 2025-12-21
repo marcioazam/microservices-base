@@ -1,5 +1,7 @@
 package functional
 
+import "iter"
+
 // Option represents an optional value that may or may not be present.
 // It provides a type-safe alternative to nil pointers.
 type Option[T any] struct {
@@ -122,4 +124,18 @@ func (o Option[T]) ToPtr() *T {
 		return &o.value
 	}
 	return nil
+}
+
+// All returns a Go 1.23+ iterator over the Option (0 or 1 element).
+func (o Option[T]) All() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		if o.present {
+			yield(o.value)
+		}
+	}
+}
+
+// Collect returns the Option as a slice (empty or single element).
+func (o Option[T]) Collect() []T {
+	return o.ToSlice()
 }

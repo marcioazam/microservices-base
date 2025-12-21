@@ -1,16 +1,17 @@
 package unit
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/infra/metrics"
+	"github.com/authcorp/libs/go/src/fault"
+	"github.com/auth-platform/platform/resilience-service/internal/infrastructure/observability"
 )
 
 func TestHistogram_Observe(t *testing.T) {
-	h := metrics.NewHistogram(metrics.DefaultLatencyBuckets)
+	h := observability.NewHistogram(observability.DefaultLatencyBuckets)
 
-	// Observe some values
 	h.Observe(0.001) // 1ms
 	h.Observe(0.005) // 5ms
 	h.Observe(0.050) // 50ms
@@ -30,7 +31,7 @@ func TestHistogram_Observe(t *testing.T) {
 }
 
 func TestHistogram_ObserveDuration(t *testing.T) {
-	h := metrics.NewHistogram(metrics.DefaultLatencyBuckets)
+	h := observability.NewHistogram(observability.DefaultLatencyBuckets)
 
 	h.ObserveDuration(1 * time.Millisecond)
 	h.ObserveDuration(10 * time.Millisecond)
@@ -44,9 +45,8 @@ func TestHistogram_ObserveDuration(t *testing.T) {
 }
 
 func TestHistogram_Percentile(t *testing.T) {
-	h := metrics.NewHistogram([]float64{0.1, 0.5, 1.0, 5.0, 10.0})
+	h := observability.NewHistogram([]float64{0.1, 0.5, 1.0, 5.0, 10.0})
 
-	// Add 100 values: 10 in each bucket
 	for i := 0; i < 10; i++ {
 		h.Observe(0.05) // <= 0.1
 		h.Observe(0.3)  // <= 0.5
@@ -56,13 +56,11 @@ func TestHistogram_Percentile(t *testing.T) {
 		h.Observe(15.0) // > 10.0 (+Inf)
 	}
 
-	// p50 should be around the 0.5 bucket
 	p50 := h.Percentile(50)
 	if p50 != 1.0 {
 		t.Errorf("p50: got %g, want 1.0", p50)
 	}
 
-	// p95 should be in higher buckets
 	p95 := h.Percentile(95)
 	if p95 < 5.0 {
 		t.Errorf("p95: got %g, want >= 5.0", p95)
@@ -70,7 +68,7 @@ func TestHistogram_Percentile(t *testing.T) {
 }
 
 func TestHistogram_EmptyPercentile(t *testing.T) {
-	h := metrics.NewHistogram(metrics.DefaultLatencyBuckets)
+	h := observability.NewHistogram(observability.DefaultLatencyBuckets)
 
 	p50 := h.Percentile(50)
 	if p50 != 0 {
@@ -79,7 +77,7 @@ func TestHistogram_EmptyPercentile(t *testing.T) {
 }
 
 func TestLatencyHistograms_Observe(t *testing.T) {
-	lh := metrics.NewLatencyHistograms()
+	lh := observability.NewLatencyHistograms()
 
 	lh.Observe("service-a", 10*time.Millisecond)
 	lh.Observe("service-a", 20*time.Millisecond)
@@ -101,33 +99,29 @@ func TestLatencyHistograms_Observe(t *testing.T) {
 }
 
 func TestLatencyHistograms_GetPercentiles(t *testing.T) {
-	lh := metrics.NewLatencyHistograms()
+	lh := observability.NewLatencyHistograms()
 
-	// Add many observations
 	for i := 0; i < 100; i++ {
 		lh.Observe("test", time.Duration(i)*time.Millisecond)
 	}
 
 	p50, p95, p99 := lh.GetPercentiles("test")
 
-	// p50 should be around 50ms
 	if p50 < 0.025 || p50 > 0.1 {
 		t.Errorf("p50: got %g, expected around 0.05", p50)
 	}
 
-	// p95 should be higher than p50
 	if p95 <= p50 {
 		t.Errorf("p95 (%g) should be > p50 (%g)", p95, p50)
 	}
 
-	// p99 should be highest
 	if p99 < p95 {
 		t.Errorf("p99 (%g) should be >= p95 (%g)", p99, p95)
 	}
 }
 
 func TestLatencyHistograms_NonExistent(t *testing.T) {
-	lh := metrics.NewLatencyHistograms()
+	lh := observability.NewLatencyHistograms()
 
 	p50, p95, p99 := lh.GetPercentiles("non-existent")
 
@@ -137,7 +131,7 @@ func TestLatencyHistograms_NonExistent(t *testing.T) {
 }
 
 func TestLatencyHistograms_Names(t *testing.T) {
-	lh := metrics.NewLatencyHistograms()
+	lh := observability.NewLatencyHistograms()
 
 	lh.Observe("zebra", time.Millisecond)
 	lh.Observe("alpha", time.Millisecond)
@@ -149,42 +143,58 @@ func TestLatencyHistograms_Names(t *testing.T) {
 		t.Errorf("Expected 3 names, got %d", len(names))
 	}
 
-	// Should be sorted
 	if names[0] != "alpha" || names[1] != "beta" || names[2] != "zebra" {
 		t.Errorf("Names not sorted: %v", names)
 	}
 }
 
-func TestMetrics_LatencyHistograms(t *testing.T) {
-	m := metrics.NewMetrics()
+func TestMetricsRecorder_RecordExecution(t *testing.T) {
+	m := observability.NewMetricsRecorder()
+	ctx := context.Background()
 
-	// Record some latencies
-	m.ObserveCircuitBreakerLatency("service-a", 10*time.Millisecond)
-	m.ObserveRetryLatency("service-b", 20*time.Millisecond)
-	m.ObserveRateLimitLatency("key-1", 1*time.Millisecond)
-	m.ObserveBulkheadLatency("partition-1", 5*time.Millisecond)
-	m.ObserveOperationLatency("op-1", 100*time.Millisecond)
+	// Record successful execution
+	m.RecordExecution(ctx, fault.NewExecutionMetrics("policy-a", 10*time.Millisecond, true))
+	m.RecordExecution(ctx, fault.NewExecutionMetrics("policy-a", 20*time.Millisecond, true))
+	m.RecordExecution(ctx, fault.NewExecutionMetrics("policy-b", 50*time.Millisecond, false))
 
-	// Get snapshot
-	snapshot := m.Snapshot()
+	stats := m.GetStats()
 
-	if len(snapshot.CircuitBreakerLatency) != 1 {
-		t.Errorf("Expected 1 circuit breaker histogram, got %d", len(snapshot.CircuitBreakerLatency))
+	if stats.Executions != 3 {
+		t.Errorf("Expected 3 executions, got %d", stats.Executions)
 	}
 
-	if len(snapshot.RetryLatency) != 1 {
-		t.Errorf("Expected 1 retry histogram, got %d", len(snapshot.RetryLatency))
+	if stats.Successes != 2 {
+		t.Errorf("Expected 2 successes, got %d", stats.Successes)
 	}
 
-	// Test percentile getters
-	p50, p95, p99 := m.GetCircuitBreakerPercentiles("service-a")
-	if p50 == 0 && p95 == 0 && p99 == 0 {
-		t.Error("Expected non-zero percentiles for circuit breaker")
+	if stats.Failures != 1 {
+		t.Errorf("Expected 1 failure, got %d", stats.Failures)
+	}
+}
+
+func TestMetricsRecorder_CacheStats(t *testing.T) {
+	m := observability.NewMetricsRecorder()
+	ctx := context.Background()
+
+	m.RecordCacheStats(ctx, 100, 20, 5)
+
+	stats := m.GetStats()
+
+	if stats.CacheHits != 100 {
+		t.Errorf("Expected 100 cache hits, got %d", stats.CacheHits)
+	}
+
+	if stats.CacheMisses != 20 {
+		t.Errorf("Expected 20 cache misses, got %d", stats.CacheMisses)
+	}
+
+	if stats.CacheEvictions != 5 {
+		t.Errorf("Expected 5 cache evictions, got %d", stats.CacheEvictions)
 	}
 }
 
 func BenchmarkHistogram_Observe(b *testing.B) {
-	h := metrics.NewHistogram(metrics.DefaultLatencyBuckets)
+	h := observability.NewHistogram(observability.DefaultLatencyBuckets)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -193,9 +203,8 @@ func BenchmarkHistogram_Observe(b *testing.B) {
 }
 
 func BenchmarkHistogram_Percentile(b *testing.B) {
-	h := metrics.NewHistogram(metrics.DefaultLatencyBuckets)
+	h := observability.NewHistogram(observability.DefaultLatencyBuckets)
 
-	// Pre-populate
 	for i := 0; i < 10000; i++ {
 		h.Observe(float64(i%100) / 1000.0)
 	}
@@ -207,7 +216,7 @@ func BenchmarkHistogram_Percentile(b *testing.B) {
 }
 
 func BenchmarkLatencyHistograms_Observe(b *testing.B) {
-	lh := metrics.NewLatencyHistograms()
+	lh := observability.NewLatencyHistograms()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

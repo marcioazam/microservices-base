@@ -49,16 +49,19 @@ async with AsyncAuthPlatformClient(config) as client:
 
 ## Token Validation with JWKS Caching
 
-The SDK automatically caches JWKS for efficient token validation:
+The SDK automatically caches JWKS for efficient token validation with refresh-ahead support:
 
 ```python
-from auth_platform_sdk import JWKSCache
+from auth_platform_sdk import JWKSCache, AsyncJWKSCache
 
-# Custom cache TTL (default: 1 hour)
+# Custom cache configuration
 config = AuthPlatformConfig(
     base_url="https://auth.example.com",
     client_id="your-client-id",
-    jwks_cache_ttl=3600,  # seconds
+    cache=CacheConfig(
+        jwks_ttl=3600,           # Cache TTL in seconds (default: 1 hour)
+        jwks_refresh_ahead=300,  # Refresh 5 minutes before expiry
+    ),
 )
 
 # Validate tokens
@@ -66,6 +69,57 @@ claims = client.validate_token(token)
 print(f"Subject: {claims.sub}")
 print(f"Issuer: {claims.iss}")
 print(f"Expires: {claims.exp}")
+```
+
+### Direct JWKS Cache Usage
+
+For advanced use cases, you can use the JWKS cache directly:
+
+```python
+from auth_platform_sdk import JWKSCache
+
+# Synchronous cache with refresh-ahead
+cache = JWKSCache(
+    jwks_uri="https://auth.example.com/.well-known/jwks.json",
+    ttl_seconds=3600,
+    refresh_ahead_seconds=300,  # Refresh before expiry
+    http_timeout=10.0,
+)
+
+# Get signing key for token validation
+signing_key = cache.get_signing_key(token)
+
+# Get specific key by ID
+key = cache.get_key_by_id("key-id-123")
+
+# Check cache status
+if cache.is_cached:
+    print("JWKS is cached and valid")
+
+# Force cache refresh
+cache.invalidate()
+```
+
+### Async JWKS Cache
+
+```python
+from auth_platform_sdk import AsyncJWKSCache
+
+cache = AsyncJWKSCache(
+    jwks_uri="https://auth.example.com/.well-known/jwks.json",
+    ttl_seconds=3600,
+    refresh_ahead_seconds=300,
+    http_timeout=10.0,
+)
+
+# Get signing key by ID
+key = await cache.get_signing_key("key-id-123")
+
+# Get all signing keys
+all_keys = await cache.get_all_signing_keys()
+
+# Invalidate cache
+await cache.invalidate()
 ```
 
 ## Framework Middleware
@@ -148,31 +202,96 @@ config = AuthPlatformConfig(
 )
 ```
 
+## Circuit Breaker
+
+The SDK includes a circuit breaker for resilience against failing services:
+
+```python
+from auth_platform_sdk.http import CircuitBreaker
+
+# Create circuit breaker with custom settings
+circuit_breaker = CircuitBreaker(
+    failure_threshold=5,      # Open after 5 failures
+    recovery_timeout=30.0,    # Try again after 30 seconds
+    half_open_requests=1,     # Requests to test recovery
+)
+
+# Circuit states: CLOSED (normal) -> OPEN (failing) -> HALF_OPEN (testing)
+print(circuit_breaker.state)  # CircuitState.CLOSED
+```
+
+The circuit breaker automatically:
+- Opens after consecutive failures to prevent cascading failures
+- Transitions to half-open state after recovery timeout
+- Closes again after successful requests in half-open state
+
 ## Error Handling
+
+All errors include structured information with error codes, correlation IDs, and details for observability:
 
 ```python
 from auth_platform_sdk import (
     AuthPlatformError,
     TokenExpiredError,
+    TokenInvalidError,
     ValidationError,
     RateLimitError,
+    DPoPError,
+    PKCEError,
+    NetworkError,
+    TimeoutError,
+    ServerError,
+    ErrorCode,
 )
 
 try:
     claims = client.validate_token(token)
-except TokenExpiredError:
-    # Token has expired
-    pass
+except TokenExpiredError as e:
+    # Token has expired (AUTH_1001)
+    print(f"Correlation ID: {e.correlation_id}")
+except TokenInvalidError as e:
+    # Token is invalid or malformed (AUTH_1002)
+    print(f"Details: {e.details}")
 except ValidationError as e:
-    # Token validation failed
-    print(f"Validation error: {e}")
+    # Input validation failed (VAL_2001)
+    print(f"Validation error: {e.message}")
 except RateLimitError as e:
-    # Rate limited, retry after delay
+    # Rate limited (RATE_4001), retry after delay
     time.sleep(e.retry_after or 60)
+except DPoPError as e:
+    # DPoP proof required or invalid (DPOP_6xxx)
+    if e.dpop_nonce:
+        # Retry with new nonce
+        pass
+except PKCEError as e:
+    # PKCE challenge/verifier error (PKCE_7xxx)
+    pass
+except NetworkError as e:
+    # Network request failed (NET_3001)
+    print(f"Cause: {e.__cause__}")
+except TimeoutError as e:
+    # Request timed out (NET_3002)
+    pass
+except ServerError as e:
+    # Server-side error (SRV_5001)
+    print(f"Status: {e.status_code}")
 except AuthPlatformError as e:
-    # Other SDK error
-    print(f"Error: {e.code} - {e}")
+    # Base error with structured info
+    print(f"Error: {e.code} - {e.message}")
+    print(f"Serialized: {e.to_dict()}")
 ```
+
+### Error Codes
+
+| Category | Code Range | Examples |
+|----------|------------|----------|
+| Authentication | AUTH_1xxx | TOKEN_EXPIRED, TOKEN_INVALID, UNAUTHORIZED |
+| Validation | VAL_2xxx | VALIDATION_ERROR, INVALID_CONFIG, INVALID_SCOPE |
+| Network | NET_3xxx | NETWORK_ERROR, TIMEOUT_ERROR, CONNECTION_ERROR |
+| Rate Limiting | RATE_4xxx | RATE_LIMITED, QUOTA_EXCEEDED |
+| Server | SRV_5xxx | SERVER_ERROR, SERVICE_UNAVAILABLE |
+| DPoP | DPOP_6xxx | DPOP_REQUIRED, DPOP_INVALID, DPOP_NONCE_REQUIRED |
+| PKCE | PKCE_7xxx | PKCE_REQUIRED, PKCE_INVALID |
 
 ## API Reference
 

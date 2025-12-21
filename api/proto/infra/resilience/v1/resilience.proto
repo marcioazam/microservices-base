@@ -1,0 +1,216 @@
+syntax = "proto3";
+
+package infra.resilience.v1;
+
+option go_package = "github.com/auth-platform/api/proto/infra/resilience/v1;resiliencev1";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// ResilienceService provides resilience policy management and execution.
+service ResilienceService {
+  // Policy Management
+  rpc CreatePolicy(CreatePolicyRequest) returns (CreatePolicyResponse);
+  rpc GetPolicy(GetPolicyRequest) returns (GetPolicyResponse);
+  rpc UpdatePolicy(UpdatePolicyRequest) returns (UpdatePolicyResponse);
+  rpc DeletePolicy(DeletePolicyRequest) returns (DeletePolicyResponse);
+  rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse);
+  
+  // Execution
+  rpc ExecuteWithResilience(ExecuteRequest) returns (ExecuteResponse);
+  
+  // Health
+  rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+  
+  // Streaming
+  rpc WatchPolicies(WatchPoliciesRequest) returns (stream PolicyEvent);
+}
+
+// Policy represents a resilience policy configuration.
+message Policy {
+  string name = 1;
+  int32 version = 2;
+  CircuitBreakerConfig circuit_breaker = 3;
+  RetryConfig retry = 4;
+  TimeoutConfig timeout = 5;
+  RateLimitConfig rate_limit = 6;
+  BulkheadConfig bulkhead = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// CircuitBreakerConfig defines circuit breaker parameters.
+message CircuitBreakerConfig {
+  int32 failure_threshold = 1;
+  int32 success_threshold = 2;
+  google.protobuf.Duration timeout = 3;
+  int32 probe_count = 4;
+}
+
+// RetryConfig defines retry behavior parameters.
+message RetryConfig {
+  int32 max_attempts = 1;
+  google.protobuf.Duration base_delay = 2;
+  google.protobuf.Duration max_delay = 3;
+  double multiplier = 4;
+  double jitter_percent = 5;
+}
+
+// TimeoutConfig defines timeout parameters.
+message TimeoutConfig {
+  google.protobuf.Duration default_timeout = 1;
+  google.protobuf.Duration max_timeout = 2;
+}
+
+// RateLimitConfig defines rate limiting parameters.
+message RateLimitConfig {
+  string algorithm = 1; // "token_bucket" or "sliding_window"
+  int32 limit = 2;
+  google.protobuf.Duration window = 3;
+  int32 burst_size = 4;
+}
+
+// BulkheadConfig defines bulkhead isolation parameters.
+message BulkheadConfig {
+  int32 max_concurrent = 1;
+  int32 max_queue = 2;
+  google.protobuf.Duration queue_timeout = 3;
+}
+
+// CreatePolicyRequest creates a new policy.
+message CreatePolicyRequest {
+  string name = 1;
+  CircuitBreakerConfig circuit_breaker = 2;
+  RetryConfig retry = 3;
+  TimeoutConfig timeout = 4;
+  RateLimitConfig rate_limit = 5;
+  BulkheadConfig bulkhead = 6;
+}
+
+// CreatePolicyResponse returns the created policy.
+message CreatePolicyResponse {
+  Policy policy = 1;
+}
+
+// GetPolicyRequest retrieves a policy by name.
+message GetPolicyRequest {
+  string name = 1;
+}
+
+// GetPolicyResponse returns the requested policy.
+message GetPolicyResponse {
+  Policy policy = 1;
+}
+
+// UpdatePolicyRequest updates an existing policy.
+message UpdatePolicyRequest {
+  string name = 1;
+  CircuitBreakerConfig circuit_breaker = 2;
+  RetryConfig retry = 3;
+  TimeoutConfig timeout = 4;
+  RateLimitConfig rate_limit = 5;
+  BulkheadConfig bulkhead = 6;
+}
+
+// UpdatePolicyResponse returns the updated policy.
+message UpdatePolicyResponse {
+  Policy policy = 1;
+}
+
+// DeletePolicyRequest deletes a policy by name.
+message DeletePolicyRequest {
+  string name = 1;
+}
+
+// DeletePolicyResponse confirms deletion.
+message DeletePolicyResponse {
+  bool success = 1;
+}
+
+// ListPoliciesRequest lists all policies.
+message ListPoliciesRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+// ListPoliciesResponse returns a list of policies.
+message ListPoliciesResponse {
+  repeated Policy policies = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+// ExecuteRequest executes an operation with resilience.
+message ExecuteRequest {
+  string policy_name = 1;
+  string operation_id = 2;
+  bytes payload = 3;
+  map<string, string> metadata = 4;
+}
+
+// ExecuteResponse returns execution result.
+message ExecuteResponse {
+  bool success = 1;
+  bytes result = 2;
+  string error_code = 3;
+  string error_message = 4;
+  ExecutionMetrics metrics = 5;
+}
+
+// ExecutionMetrics contains execution statistics.
+message ExecutionMetrics {
+  google.protobuf.Duration duration = 1;
+  int32 retry_attempts = 2;
+  string circuit_state = 3;
+  bool rate_limited = 4;
+  bool bulkhead_rejected = 5;
+}
+
+// GetHealthRequest requests health status.
+message GetHealthRequest {}
+
+// GetHealthResponse returns health status.
+message GetHealthResponse {
+  HealthStatus status = 1;
+  repeated ComponentHealth components = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// HealthStatus represents overall health state.
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_HEALTHY = 1;
+  HEALTH_STATUS_UNHEALTHY = 2;
+  HEALTH_STATUS_DEGRADED = 3;
+}
+
+// ComponentHealth represents individual component health.
+message ComponentHealth {
+  string name = 1;
+  HealthStatus status = 2;
+  string message = 3;
+  map<string, string> details = 4;
+}
+
+// WatchPoliciesRequest starts watching policy changes.
+message WatchPoliciesRequest {
+  repeated string policy_names = 1; // Empty means watch all
+}
+
+// PolicyEvent represents a policy change event.
+message PolicyEvent {
+  string event_id = 1;
+  PolicyEventType type = 2;
+  string policy_name = 3;
+  int32 version = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  Policy policy = 6; // Present for created/updated events
+}
+
+// PolicyEventType represents the type of policy event.
+enum PolicyEventType {
+  POLICY_EVENT_TYPE_UNSPECIFIED = 0;
+  POLICY_EVENT_TYPE_CREATED = 1;
+  POLICY_EVENT_TYPE_UPDATED = 2;
+  POLICY_EVENT_TYPE_DELETED = 3;
+}

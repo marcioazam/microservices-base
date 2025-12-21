@@ -26,3 +26,33 @@ func MapFunc[A, B any, F Functor[A]](f F, fn func(A) B) any {
 		return nil
 	}
 }
+
+// Type conversion functions
+
+// OptionToResult converts Option[T] to Result[T] with provided error for None.
+func OptionToResult[T any](opt Option[T], err error) Result[T] {
+	if opt.IsSome() {
+		return Ok(opt.Unwrap())
+	}
+	return Err[T](err)
+}
+
+// ResultToOption converts Result[T] to Option[T], discarding error.
+func ResultToOption[T any](res Result[T]) Option[T] {
+	if res.IsOk() {
+		return Some(res.Unwrap())
+	}
+	return None[T]()
+}
+
+// IdentityFunc is an identity function for functor law testing.
+func IdentityFunc[T any](v T) T {
+	return v
+}
+
+// ComposeFunc composes two functions for functor law testing.
+func ComposeFunc[A, B, C any](f func(A) B, g func(B) C) func(A) C {
+	return func(a A) C {
+		return g(f(a))
+	}
+}

@@ -49,7 +49,7 @@ except RateLimitError as e:
 
 ### Invalid Token
 
-**Error:** `ValidationError` / `ErrValidation`
+**Error:** `ValidationError` (VAL_2001) / `TokenInvalidError` (AUTH_1002) / `ErrValidation`
 
 **Cause:** Token signature invalid, expired, or wrong audience.
 
@@ -57,6 +57,7 @@ except RateLimitError as e:
 1. Verify the token was issued by your auth server
 2. Check the `aud` claim matches your client ID
 3. Ensure JWKS is up to date
+4. Check the `correlation_id` in error details for debugging
 
 ```go
 // Go
@@ -64,6 +65,16 @@ claims, err := client.ValidateToken(ctx, token)
 if authplatform.IsValidation(err) {
     // Token is invalid, request new one
 }
+```
+
+```python
+# Python - check error details
+try:
+    claims = client.validate_token(token)
+except TokenInvalidError as e:
+    print(f"Error code: {e.code}")  # AUTH_1002
+    print(f"Correlation ID: {e.correlation_id}")
+    print(f"Details: {e.details}")
 ```
 
 ### Passkey Not Supported
@@ -84,7 +95,7 @@ if (!AuthPlatformClient.isPasskeysSupported()) {
 
 ### Network Error
 
-**Error:** `NetworkError` / `ErrNetwork`
+**Error:** `NetworkError` (NET_3001) / `TimeoutError` (NET_3002) / `ErrNetwork`
 
 **Cause:** Network connectivity issues or server unavailable.
 
@@ -92,6 +103,52 @@ if (!AuthPlatformClient.isPasskeysSupported()) {
 1. Check network connectivity
 2. Verify the base URL is correct
 3. Check for firewall/proxy issues
+4. For timeouts, consider increasing timeout configuration
+
+```python
+# Python - handle network errors with cause chain
+try:
+    claims = client.validate_token(token)
+except TimeoutError as e:
+    print(f"Timed out after {e.details.get('timeout_seconds')}s")
+except NetworkError as e:
+    print(f"Network error: {e.message}")
+    if e.__cause__:
+        print(f"Underlying cause: {e.__cause__}")
+```
+
+### DPoP Errors
+
+**Error:** `DPoPError` (DPOP_6001, DPOP_6002, DPOP_6003)
+
+**Cause:** DPoP proof missing, invalid, or nonce required.
+
+**Solution:**
+1. Ensure DPoP proof is included in requests
+2. Handle nonce requirements by retrying with server-provided nonce
+3. Verify DPoP key binding matches token
+
+```python
+# Python - handle DPoP nonce requirement
+try:
+    tokens = client.token_request(dpop_proof=proof)
+except DPoPError as e:
+    if e.code == "DPOP_6003" and e.dpop_nonce:
+        # Retry with new nonce
+        new_proof = create_dpop_proof(nonce=e.dpop_nonce)
+        tokens = client.token_request(dpop_proof=new_proof)
+```
+
+### PKCE Errors
+
+**Error:** `PKCEError` (PKCE_7001, PKCE_7002)
+
+**Cause:** PKCE challenge/verifier missing or invalid.
+
+**Solution:**
+1. Ensure code_challenge is sent with authorization request
+2. Ensure code_verifier is sent with token request
+3. Verify challenge method matches (S256 recommended)
 
 ## JWKS Cache Issues
 

@@ -109,3 +109,50 @@ func Partition[T any](items []T, spec Spec[T]) (satisfied, unsatisfied []T) {
 	}
 	return
 }
+
+// True creates a specification that is always satisfied.
+func True[T any]() Spec[T] {
+	return SpecFunc[T](func(T) bool { return true })
+}
+
+// False creates a specification that is never satisfied.
+func False[T any]() Spec[T] {
+	return SpecFunc[T](func(T) bool { return false })
+}
+
+// Equals creates a specification for equality.
+func Equals[T comparable](value T) Spec[T] {
+	return SpecFunc[T](func(v T) bool { return v == value })
+}
+
+// NotEquals creates a specification for inequality.
+func NotEquals[T comparable](value T) Spec[T] {
+	return SpecFunc[T](func(v T) bool { return v != value })
+}
+
+// GreaterThan creates a specification for greater than comparison.
+func GreaterThan[T interface{ ~int | ~int64 | ~float64 | ~string }](value T) Spec[T] {
+	return SpecFunc[T](func(v T) bool { return v > value })
+}
+
+// LessThan creates a specification for less than comparison.
+func LessThan[T interface{ ~int | ~int64 | ~float64 | ~string }](value T) Spec[T] {
+	return SpecFunc[T](func(v T) bool { return v < value })
+}
+
+// Between creates a specification for range check.
+func Between[T interface{ ~int | ~int64 | ~float64 | ~string }](min, max T) Spec[T] {
+	return SpecFunc[T](func(v T) bool { return v >= min && v <= max })
+}
+
+// In creates a specification for set membership.
+func In[T comparable](values ...T) Spec[T] {
+	set := make(map[T]struct{}, len(values))
+	for _, v := range values {
+		set[v] = struct{}{}
+	}
+	return SpecFunc[T](func(v T) bool {
+		_, ok := set[v]
+		return ok
+	})
+}

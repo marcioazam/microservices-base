@@ -11,52 +11,77 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/auth-platform/sdk-go/internal/observability"
 )
 
-// Config holds client configuration.
-type Config struct {
-	BaseURL      string
-	ClientID     string
-	ClientSecret string
-	Timeout      time.Duration
-	JWKSCacheTTL time.Duration
-}
-
-// Option is a functional option for configuring the client.
-type Option func(*Client)
+// ClientOption is a functional option for configuring the client.
+type ClientOption func(*Client)
 
 // WithTimeout sets the HTTP timeout.
-func WithTimeout(d time.Duration) Option {
+func WithTimeout(d time.Duration) ClientOption {
 	return func(c *Client) {
 		c.httpClient.Timeout = d
 	}
 }
 
 // WithHTTPClient sets a custom HTTP client.
-func WithHTTPClient(hc *http.Client) Option {
+func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) {
 		c.httpClient = hc
 	}
 }
 
 // WithJWKSCacheTTL sets the JWKS cache TTL.
-func WithJWKSCacheTTL(d time.Duration) Option {
+func WithJWKSCacheTTL(d time.Duration) ClientOption {
 	return func(c *Client) {
 		c.jwksCache.ttl = d
 	}
 }
 
+// WithRetryPolicy sets a custom retry policy.
+func WithRetryPolicy(p *RetryPolicy) ClientOption {
+	return func(c *Client) {
+		c.retryPolicy = p
+	}
+}
+
+// WithDPoPProver sets a DPoP prover for sender-constrained tokens.
+func WithDPoPProver(prover DPoPProver) ClientOption {
+	return func(c *Client) {
+		c.dpopProver = prover
+	}
+}
+
+// WithTracer sets a custom tracer.
+func WithTracer(t *observability.Tracer) ClientOption {
+	return func(c *Client) {
+		c.tracer = t
+	}
+}
+
+// WithLogger sets a custom logger.
+func WithLogger(l observability.Logger) ClientOption {
+	return func(c *Client) {
+		c.logger = l
+	}
+}
+
 // Client is the Auth Platform SDK client.
 type Client struct {
-	config     Config
-	httpClient *http.Client
-	jwksCache  *JWKSCache
-	tokens     *TokenData
-	tokensMu   sync.RWMutex
+	config      Config
+	httpClient  *http.Client
+	jwksCache   *JWKSCache
+	tokens      *TokenData
+	tokensMu    sync.RWMutex
+	retryPolicy *RetryPolicy
+	dpopProver  DPoPProver
+	tracer      *observability.Tracer
+	logger      observability.Logger
 }
 
 // New creates a new Auth Platform client.
-func New(config Config, opts ...Option) (*Client, error) {
+func New(config Config, opts ...ClientOption) (*Client, error) {
 	if config.BaseURL == "" {
 		return nil, ErrInvalidConfig
 	}
@@ -73,9 +98,21 @@ func New(config Config, opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		config:     config,
-		httpClient: &http.Client{Timeout: config.Timeout},
-		jwksCache:  NewJWKSCache(config.BaseURL+"/.well-known/jwks.json", config.JWKSCacheTTL),
+		config:      config,
+		httpClient:  &http.Client{Timeout: config.Timeout},
+		jwksCache:   NewJWKSCache(config.BaseURL+"/.well-known/jwks.json", config.JWKSCacheTTL),
+		retryPolicy: DefaultRetryPolicy(),
+		tracer:      observability.NewTracer(),
+		logger:      observability.NewDefaultLogger(observability.LogLevelInfo),
+	}
+
+	// Initialize DPoP if enabled
+	if config.DPoPEnabled {
+		keyPair, err := GenerateES256KeyPair()
+		if err != nil {
+			return nil, err
+		}
+		c.dpopProver = NewDPoPProver(keyPair)
 	}
 
 	for _, opt := range opts {
@@ -116,8 +153,13 @@ type Claims struct {
 
 // ClientCredentials obtains a token using client credentials flow.
 func (c *Client) ClientCredentials(ctx context.Context) (*TokenResponse, error) {
+	ctx, span := c.tracer.ClientCredentialsSpan(ctx)
+	defer span.End()
+
 	if c.config.ClientSecret == "" {
-		return nil, fmt.Errorf("%w: client_secret required", ErrInvalidConfig)
+		err := fmt.Errorf("%w: client_secret required", ErrInvalidConfig)
+		observability.RecordError(span, err)
+		return nil, err
 	}
 
 	data := url.Values{
@@ -133,19 +175,32 @@ func (c *Client) ClientCredentials(ctx context.Context) (*TokenResponse, error) 
 		strings.NewReader(data.Encode()),
 	)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.doWithRetry(ctx, req)
+	// Add DPoP proof if enabled
+	if c.dpopProver != nil {
+		proof, err := c.dpopProver.GenerateProof(ctx, http.MethodPost, c.config.BaseURL+"/oauth/token", "")
+		if err != nil {
+			observability.RecordError(span, err)
+			return nil, err
+		}
+		req.Header.Set("DPoP", proof)
+	}
+
+	resp, err := c.doWithRetryPolicy(ctx, req)
 	if err != nil {
+		observability.RecordError(span, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var tokenResp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		observability.RecordError(span, err)
 		return nil, fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
 
@@ -160,12 +215,26 @@ func (c *Client) ClientCredentials(ctx context.Context) (*TokenResponse, error) 
 	}
 	c.tokensMu.Unlock()
 
+	observability.SetSuccess(span)
+	c.logger.Info(ctx, "client credentials flow completed")
 	return &tokenResp, nil
 }
 
 // ValidateToken validates a JWT and returns claims.
 func (c *Client) ValidateToken(ctx context.Context, token string) (*Claims, error) {
-	return c.jwksCache.ValidateToken(ctx, token, c.config.ClientID)
+	ctx, span := c.tracer.TokenValidationSpan(ctx)
+	defer span.End()
+
+	claims, err := c.jwksCache.ValidateToken(ctx, token, c.config.ClientID)
+	if err != nil {
+		observability.RecordError(span, err)
+		observability.LogTokenValidation(c.logger, ctx, false, err)
+		return nil, err
+	}
+
+	observability.SetSuccess(span)
+	observability.LogTokenValidation(c.logger, ctx, true, nil)
+	return claims, nil
 }
 
 // GetAccessToken returns a valid access token, refreshing if necessary.
@@ -196,12 +265,17 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 }
 
 func (c *Client) refreshTokens(ctx context.Context) error {
+	ctx, span := c.tracer.TokenRefreshSpan(ctx)
+	defer span.End()
+
 	c.tokensMu.RLock()
 	refreshToken := c.tokens.RefreshToken
 	c.tokensMu.RUnlock()
 
 	if refreshToken == "" {
-		return ErrTokenRefresh
+		err := ErrTokenRefresh
+		observability.RecordError(span, err)
+		return err
 	}
 
 	data := url.Values{
@@ -217,22 +291,26 @@ func (c *Client) refreshTokens(ctx context.Context) error {
 		strings.NewReader(data.Encode()),
 	)
 	if err != nil {
+		observability.RecordError(span, err)
 		return fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.doWithRetry(ctx, req)
+	resp, err := c.doWithRetryPolicy(ctx, req)
 	if err != nil {
 		c.tokensMu.Lock()
 		c.tokens = nil
 		c.tokensMu.Unlock()
+		observability.RecordError(span, err)
+		observability.LogTokenRefresh(c.logger, ctx, false, err)
 		return fmt.Errorf("%w: %v", ErrTokenRefresh, err)
 	}
 	defer resp.Body.Close()
 
 	var tokenResp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		observability.RecordError(span, err)
 		return fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
 
@@ -246,49 +324,34 @@ func (c *Client) refreshTokens(ctx context.Context) error {
 	}
 	c.tokensMu.Unlock()
 
+	observability.SetSuccess(span)
+	observability.LogTokenRefresh(c.logger, ctx, true, nil)
 	return nil
 }
 
+// doWithRetryPolicy executes HTTP request with retry policy.
+func (c *Client) doWithRetryPolicy(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return RetryWithResponse(ctx, c.retryPolicy, func(ctx context.Context) (*http.Response, error) {
+		return c.httpClient.Do(req)
+	})
+}
+
 func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
-	var lastErr error
-	maxRetries := 3
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("%w: %v", ErrNetwork, err)
-			time.Sleep(time.Duration(1<<attempt) * time.Second)
-			continue
-		}
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			resp.Body.Close()
-			retryAfter := resp.Header.Get("Retry-After")
-			delay := time.Duration(1<<attempt) * time.Second
-			if retryAfter != "" {
-				if d, err := time.ParseDuration(retryAfter + "s"); err == nil {
-					delay = d
-				}
-			}
-			lastErr = ErrRateLimited
-			time.Sleep(delay)
-			continue
-		}
-
-		if resp.StatusCode >= 400 {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return nil, fmt.Errorf("%w: status %d: %s", ErrNetwork, resp.StatusCode, string(body))
-		}
-
-		return resp, nil
-	}
-
-	return nil, lastErr
+	return c.doWithRetryPolicy(ctx, req)
 }
 
 // Close releases resources.
 func (c *Client) Close() error {
 	c.httpClient.CloseIdleConnections()
 	return nil
+}
+
+// newRequestWithContext creates a new HTTP request with context.
+func newRequestWithContext(ctx context.Context, method, url string, body io.Reader) (*http.Request, error) {
+	return http.NewRequestWithContext(ctx, method, url, body)
+}
+
+// decodeJSON decodes JSON from a reader into a value.
+func decodeJSON(r io.Reader, v interface{}) error {
+	return json.NewDecoder(r).Decode(v)
 }

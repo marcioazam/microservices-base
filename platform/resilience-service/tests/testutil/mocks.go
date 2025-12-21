@@ -4,20 +4,48 @@ package testutil
 import (
 	"context"
 
+	"github.com/authcorp/libs/go/src/functional"
+	"github.com/authcorp/libs/go/src/fault"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/entities"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/valueobjects"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
+// MockResilienceExecutor provides a mock implementation of ResilienceExecutor.
+type MockResilienceExecutor struct{}
+
+func (m *MockResilienceExecutor) Execute(ctx context.Context, policyName string, operation func() error) error {
+	return operation()
+}
+
+func (m *MockResilienceExecutor) ExecuteWithResult(ctx context.Context, policyName string, operation func() (any, error)) functional.Result[any] {
+	result, err := operation()
+	if err != nil {
+		return functional.Err[any](err)
+	}
+	return functional.Ok(result)
+}
+
+func (m *MockResilienceExecutor) RegisterPolicy(policy *entities.Policy) error {
+	return nil
+}
+
+func (m *MockResilienceExecutor) UnregisterPolicy(policyName string) {}
+
+func (m *MockResilienceExecutor) GetPolicyNames() []string {
+	return nil
+}
+
 // MockMetricsRecorder provides a mock implementation of MetricsRecorder.
 type MockMetricsRecorder struct{}
 
-func (m *MockMetricsRecorder) RecordExecution(ctx context.Context, metrics valueobjects.ExecutionMetrics) {}
+func (m *MockMetricsRecorder) RecordExecution(ctx context.Context, metrics fault.ExecutionMetrics) {}
 func (m *MockMetricsRecorder) RecordCircuitState(ctx context.Context, policyName string, state string) {}
 func (m *MockMetricsRecorder) RecordRetryAttempt(ctx context.Context, policyName string, attempt int) {}
 func (m *MockMetricsRecorder) RecordRateLimit(ctx context.Context, policyName string, limited bool) {}
 func (m *MockMetricsRecorder) RecordBulkheadQueue(ctx context.Context, policyName string, queued bool) {}
+func (m *MockMetricsRecorder) RecordCacheStats(ctx context.Context, hits, misses, evictions int64) {}
 
 // MockHealthChecker provides a mock implementation of HealthChecker.
 type MockHealthChecker struct {

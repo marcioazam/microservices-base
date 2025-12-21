@@ -1,7 +1,12 @@
+// Feature: go-libs-state-of-art-2025, Property 9: Generator Validity
+// Validates: Requirements 11.1, 11.3
 package testing_test
 
 import (
+	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/authcorp/libs/go/src/functional"
 	testutil "github.com/authcorp/libs/go/src/testing"
@@ -130,27 +135,115 @@ func TestProperty_PairGenValid(t *testing.T) {
 	})
 }
 
-// Property 17: Seeded Test Reproducibility
-// Same seed produces same sequence.
-func TestProperty_SeededReproducibility(t *testing.T) {
-	// This tests that rapid's seeding works correctly
-	// Two runs with same seed should produce same values
-	seed := uint64(12345)
-	
-	var values1 []int
-	var values2 []int
-	
+// Property: EmailGen produces valid emails
+func TestProperty_EmailGenValid(t *testing.T) {
+	emailRegex := regexp.MustCompile(`^[a-z][a-z0-9]{2,10}@[a-z]{3,8}\.(com|org|net|io|dev)$`)
 	rapid.Check(t, func(t *rapid.T) {
-		v := rapid.Int().Draw(t, "value")
-		values1 = append(values1, v)
+		email := testutil.EmailGen().Draw(t, "email")
+		if !emailRegex.MatchString(email) {
+			t.Fatalf("invalid email format: %s", email)
+		}
 	})
-	
+}
+
+// Property: UUIDGen produces valid UUIDs
+func TestProperty_UUIDGenValid(t *testing.T) {
+	uuidRegex := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	rapid.Check(t, func(t *rapid.T) {
-		v := rapid.Int().Draw(t, "value")
-		values2 = append(values2, v)
+		uuid := testutil.UUIDGen().Draw(t, "uuid")
+		if !uuidRegex.MatchString(uuid) {
+			t.Fatalf("invalid UUID format: %s", uuid)
+		}
 	})
-	
-	// Note: rapid handles seeding internally, this test verifies
-	// the framework is working correctly
-	_ = seed
+}
+
+// Property: ULIDGen produces valid ULIDs
+func TestProperty_ULIDGenValid(t *testing.T) {
+	ulidRegex := regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
+	rapid.Check(t, func(t *rapid.T) {
+		ulid := testutil.ULIDGen().Draw(t, "ulid")
+		if !ulidRegex.MatchString(ulid) {
+			t.Fatalf("invalid ULID format: %s", ulid)
+		}
+	})
+}
+
+// Property: MoneyGen produces valid Money
+func TestProperty_MoneyGenValid(t *testing.T) {
+	validCurrencies := map[string]bool{"USD": true, "EUR": true, "GBP": true, "JPY": true, "CAD": true}
+	rapid.Check(t, func(t *rapid.T) {
+		money := testutil.MoneyGen().Draw(t, "money")
+		if money.Amount < 0 {
+			t.Fatalf("money amount should be non-negative: %d", money.Amount)
+		}
+		if !validCurrencies[money.Currency] {
+			t.Fatalf("invalid currency: %s", money.Currency)
+		}
+	})
+}
+
+// Property: PhoneNumberGen produces valid E.164 format
+func TestProperty_PhoneNumberGenValid(t *testing.T) {
+	phoneRegex := regexp.MustCompile(`^\+\d{11,15}$`)
+	rapid.Check(t, func(t *rapid.T) {
+		phone := testutil.PhoneNumberGen().Draw(t, "phone")
+		if !phoneRegex.MatchString(phone) {
+			t.Fatalf("invalid phone format: %s", phone)
+		}
+	})
+}
+
+// Property: URLGen produces valid URLs
+func TestProperty_URLGenValid(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		url := testutil.URLGen().Draw(t, "url")
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			t.Fatalf("URL should start with http:// or https://: %s", url)
+		}
+	})
+}
+
+// Property: IPAddressGen produces valid IPv4
+func TestProperty_IPAddressGenValid(t *testing.T) {
+	ipRegex := regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
+	rapid.Check(t, func(t *rapid.T) {
+		ip := testutil.IPAddressGen().Draw(t, "ip")
+		if !ipRegex.MatchString(ip) {
+			t.Fatalf("invalid IP format: %s", ip)
+		}
+	})
+}
+
+// Property: RecentTimestampGen produces recent timestamps
+func TestProperty_RecentTimestampGenValid(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		ts := testutil.RecentTimestampGen().Draw(t, "timestamp")
+		now := time.Now().Add(time.Second) // Small buffer for timing
+		thirtyOneDaysAgo := now.AddDate(0, 0, -31) // Extra day buffer
+		if ts.Before(thirtyOneDaysAgo) || ts.After(now) {
+			t.Fatalf("timestamp should be within last 30 days: %v", ts)
+		}
+	})
+}
+
+// Property: CorrelationIDGen produces valid format
+func TestProperty_CorrelationIDGenValid(t *testing.T) {
+	corrRegex := regexp.MustCompile(`^[a-f0-9]{32}$`)
+	rapid.Check(t, func(t *rapid.T) {
+		id := testutil.CorrelationIDGen().Draw(t, "correlationID")
+		if !corrRegex.MatchString(id) {
+			t.Fatalf("invalid correlation ID format: %s", id)
+		}
+	})
+}
+
+// Property: SemanticVersionGen produces valid semver
+func TestProperty_SemanticVersionGenValid(t *testing.T) {
+	semverRegex := regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	rapid.Check(t, func(t *rapid.T) {
+		version := testutil.SemanticVersionGen().Draw(t, "version")
+		if !semverRegex.MatchString(version) {
+			t.Fatalf("invalid semver format: %s", version)
+		}
+	})
 }

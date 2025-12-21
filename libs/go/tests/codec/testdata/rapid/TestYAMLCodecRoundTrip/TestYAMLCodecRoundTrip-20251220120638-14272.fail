@@ -1,0 +1,15 @@
+# 2025/12/20 12:06:38.391376 [TestYAMLCodecRoundTrip] [rapid] draw string: "\n"
+# 2025/12/20 12:06:38.391376 [TestYAMLCodecRoundTrip] [rapid] draw int: 0
+# 2025/12/20 12:06:38.391376 [TestYAMLCodecRoundTrip] [rapid] draw bool: false
+# 2025/12/20 12:06:38.391376 [TestYAMLCodecRoundTrip] string mismatch: got , want 
+# 
+v0.4.8#2449230962244042503
+0x5555555555555
+0x25
+0x9867f1f40f739
+0xa
+0x0
+0x0
+0x0
+0x0
+0x0

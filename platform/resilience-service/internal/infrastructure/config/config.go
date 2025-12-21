@@ -264,7 +264,11 @@ func validateCustomRules(config *Config) error {
 		if config.OpenTelemetry.Insecure {
 			return fmt.Errorf("insecure OpenTelemetry not allowed in production")
 		}
-		if config.Redis.TLSEnabled && config.Redis.TLSSkipVerify {
+		// Enforce TLS for Redis in production
+		if !config.Redis.TLSEnabled {
+			return fmt.Errorf("TLS must be enabled for Redis in production")
+		}
+		if config.Redis.TLSSkipVerify {
 			return fmt.Errorf("TLS verification cannot be skipped in production")
 		}
 	}

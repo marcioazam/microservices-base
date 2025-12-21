@@ -1,6 +1,9 @@
 package functional
 
-import "errors"
+import (
+	"errors"
+	"iter"
+)
 
 // NewError creates a new error with the given message.
 func NewError(msg string) error {
@@ -122,6 +125,23 @@ func (r Result[T]) ToOption() Option[T] {
 		return Some(r.value)
 	}
 	return None[T]()
+}
+
+// All returns a Go 1.23+ iterator over the Result (0 or 1 element).
+func (r Result[T]) All() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		if r.ok {
+			yield(r.value)
+		}
+	}
+}
+
+// Collect returns the Result value as a slice (empty if error).
+func (r Result[T]) Collect() []T {
+	if r.ok {
+		return []T{r.value}
+	}
+	return []T{}
 }
 
 // FromOption creates a Result from an Option.

@@ -408,23 +408,25 @@ type RateLimitState struct {
 // ResilienceEvent represents an event for observability
 type ResilienceEvent struct {
     ID            string                 `json:"id"`
-    Type          ResilienceEventType    `json:"type"`
+    Type          EventType              `json:"type"`
     ServiceName   string                 `json:"service_name"`
     Timestamp     time.Time              `json:"timestamp"`
     CorrelationID string                 `json:"correlation_id"`
     TraceID       string                 `json:"trace_id"`
     SpanID        string                 `json:"span_id"`
-    Metadata      map[string]interface{} `json:"metadata"`
 }
 
-type ResilienceEventType string
+type EventType string
 
 const (
-    EventCircuitStateChange ResilienceEventType = "circuit_state_change"
-    EventRetryAttempt       ResilienceEventType = "retry_attempt"
-    EventTimeout            ResilienceEventType = "timeout"
-    EventRateLimitHit       ResilienceEventType = "rate_limit_hit"
-    EventBulkheadRejection  ResilienceEventType = "bulkhead_rejection"
+    EventCircuitOpen     EventType = "circuit_open"
+    EventCircuitClosed   EventType = "circuit_closed"
+    EventCircuitHalfOpen EventType = "circuit_half_open"
+    EventRateLimited     EventType = "rate_limited"
+    EventTimeout         EventType = "timeout"
+    EventBulkheadFull    EventType = "bulkhead_full"
+    EventRetryAttempt    EventType = "retry_attempt"
+    EventRetryExhausted  EventType = "retry_exhausted"
 )
 ```
 

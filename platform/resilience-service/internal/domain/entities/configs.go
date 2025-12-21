@@ -1,9 +1,12 @@
-// Package entities defines resilience configuration entities.
+// Package entities defines resilience configuration entities with composable validation.
 package entities
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/authcorp/libs/go/src/functional"
+	"github.com/authcorp/libs/go/src/validation"
 )
 
 // CircuitBreakerConfig defines circuit breaker parameters.
@@ -15,45 +18,53 @@ type CircuitBreakerConfig struct {
 }
 
 // NewCircuitBreakerConfig creates a new circuit breaker configuration.
-func NewCircuitBreakerConfig(failureThreshold, successThreshold int, timeout time.Duration, probeCount int) (*CircuitBreakerConfig, error) {
+func NewCircuitBreakerConfig(failureThreshold, successThreshold int, timeout time.Duration, probeCount int) functional.Result[*CircuitBreakerConfig] {
 	config := &CircuitBreakerConfig{
 		FailureThreshold: failureThreshold,
 		SuccessThreshold: successThreshold,
 		Timeout:          timeout,
 		ProbeCount:       probeCount,
 	}
-
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return config.ValidateResult()
 }
 
-// Validate validates circuit breaker configuration.
+// Validate validates circuit breaker configuration (legacy compatibility).
 func (c *CircuitBreakerConfig) Validate() error {
-	if c.FailureThreshold < 1 || c.FailureThreshold > 100 {
-		return fmt.Errorf("failure threshold must be between 1 and 100, got: %d", c.FailureThreshold)
+	result := c.ValidateResult()
+	if result.IsErr() {
+		return result.UnwrapErr()
 	}
-
-	if c.SuccessThreshold < 1 || c.SuccessThreshold > 10 {
-		return fmt.Errorf("success threshold must be between 1 and 10, got: %d", c.SuccessThreshold)
-	}
-
-	if c.SuccessThreshold > c.FailureThreshold {
-		return fmt.Errorf("success threshold (%d) cannot be greater than failure threshold (%d)",
-			c.SuccessThreshold, c.FailureThreshold)
-	}
-
-	if c.Timeout < time.Second || c.Timeout > 5*time.Minute {
-		return fmt.Errorf("timeout must be between 1s and 5m, got: %v", c.Timeout)
-	}
-
-	if c.ProbeCount < 1 || c.ProbeCount > 10 {
-		return fmt.Errorf("probe count must be between 1 and 10, got: %d", c.ProbeCount)
-	}
-
 	return nil
+}
+
+// ValidateResult validates using composable validators from libs/go.
+func (c *CircuitBreakerConfig) ValidateResult() functional.Result[*CircuitBreakerConfig] {
+	result := validation.NewResult()
+
+	result.Merge(validation.Field("failure_threshold", c.FailureThreshold,
+		validation.InRange(1, 100)))
+
+	result.Merge(validation.Field("success_threshold", c.SuccessThreshold,
+		validation.InRange(1, 10)))
+
+	result.Merge(validation.Field("timeout", c.Timeout,
+		validation.DurationRange(time.Second, 5*time.Minute)))
+
+	result.Merge(validation.Field("probe_count", c.ProbeCount,
+		validation.InRange(1, 10)))
+
+	// Cross-field validation
+	if c.SuccessThreshold > c.FailureThreshold {
+		result.AddFieldError("success_threshold",
+			fmt.Sprintf("cannot be greater than failure_threshold (%d)", c.FailureThreshold),
+			"cross_field")
+	}
+
+	if !result.IsValid() {
+		return functional.Err[*CircuitBreakerConfig](
+			fmt.Errorf("validation failed: %v", result.ErrorMessages()))
+	}
+	return functional.Ok(c)
 }
 
 // Clone creates a deep copy of the circuit breaker configuration.
@@ -76,7 +87,7 @@ type RetryConfig struct {
 }
 
 // NewRetryConfig creates a new retry configuration.
-func NewRetryConfig(maxAttempts int, baseDelay, maxDelay time.Duration, multiplier, jitterPercent float64) (*RetryConfig, error) {
+func NewRetryConfig(maxAttempts int, baseDelay, maxDelay time.Duration, multiplier, jitterPercent float64) functional.Result[*RetryConfig] {
 	config := &RetryConfig{
 		MaxAttempts:   maxAttempts,
 		BaseDelay:     baseDelay,
@@ -84,41 +95,49 @@ func NewRetryConfig(maxAttempts int, baseDelay, maxDelay time.Duration, multipli
 		Multiplier:    multiplier,
 		JitterPercent: jitterPercent,
 	}
-
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return config.ValidateResult()
 }
 
-// Validate validates retry configuration.
+// Validate validates retry configuration (legacy compatibility).
 func (r *RetryConfig) Validate() error {
-	if r.MaxAttempts < 1 || r.MaxAttempts > 10 {
-		return fmt.Errorf("max attempts must be between 1 and 10, got: %d", r.MaxAttempts)
+	result := r.ValidateResult()
+	if result.IsErr() {
+		return result.UnwrapErr()
 	}
-
-	if r.BaseDelay < time.Millisecond || r.BaseDelay > 10*time.Second {
-		return fmt.Errorf("base delay must be between 1ms and 10s, got: %v", r.BaseDelay)
-	}
-
-	if r.MaxDelay < time.Second || r.MaxDelay > 5*time.Minute {
-		return fmt.Errorf("max delay must be between 1s and 5m, got: %v", r.MaxDelay)
-	}
-
-	if r.BaseDelay > r.MaxDelay {
-		return fmt.Errorf("base delay (%v) cannot be greater than max delay (%v)", r.BaseDelay, r.MaxDelay)
-	}
-
-	if r.Multiplier < 1.0 || r.Multiplier > 10.0 {
-		return fmt.Errorf("multiplier must be between 1.0 and 10.0, got: %f", r.Multiplier)
-	}
-
-	if r.JitterPercent < 0.0 || r.JitterPercent > 1.0 {
-		return fmt.Errorf("jitter percent must be between 0.0 and 1.0, got: %f", r.JitterPercent)
-	}
-
 	return nil
+}
+
+// ValidateResult validates using composable validators.
+func (r *RetryConfig) ValidateResult() functional.Result[*RetryConfig] {
+	result := validation.NewResult()
+
+	result.Merge(validation.Field("max_attempts", r.MaxAttempts,
+		validation.InRange(1, 10)))
+
+	result.Merge(validation.Field("base_delay", r.BaseDelay,
+		validation.DurationRange(time.Millisecond, 10*time.Second)))
+
+	result.Merge(validation.Field("max_delay", r.MaxDelay,
+		validation.DurationRange(time.Second, 5*time.Minute)))
+
+	result.Merge(validation.Field("multiplier", r.Multiplier,
+		validation.FloatRange(1.0, 10.0)))
+
+	result.Merge(validation.Field("jitter_percent", r.JitterPercent,
+		validation.FloatRange(0.0, 1.0)))
+
+	// Cross-field validation
+	if r.BaseDelay > r.MaxDelay {
+		result.AddFieldError("base_delay",
+			fmt.Sprintf("cannot be greater than max_delay (%v)", r.MaxDelay),
+			"cross_field")
+	}
+
+	if !result.IsValid() {
+		return functional.Err[*RetryConfig](
+			fmt.Errorf("validation failed: %v", result.ErrorMessages()))
+	}
+	return functional.Ok(r)
 }
 
 // Clone creates a deep copy of the retry configuration.
@@ -139,34 +158,45 @@ type TimeoutConfig struct {
 }
 
 // NewTimeoutConfig creates a new timeout configuration.
-func NewTimeoutConfig(defaultTimeout, maxTimeout time.Duration) (*TimeoutConfig, error) {
+func NewTimeoutConfig(defaultTimeout, maxTimeout time.Duration) functional.Result[*TimeoutConfig] {
 	config := &TimeoutConfig{
 		Default: defaultTimeout,
 		Max:     maxTimeout,
 	}
-
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return config.ValidateResult()
 }
 
-// Validate validates timeout configuration.
+// Validate validates timeout configuration (legacy compatibility).
 func (t *TimeoutConfig) Validate() error {
-	if t.Default < 100*time.Millisecond || t.Default > 5*time.Minute {
-		return fmt.Errorf("default timeout must be between 100ms and 5m, got: %v", t.Default)
+	result := t.ValidateResult()
+	if result.IsErr() {
+		return result.UnwrapErr()
 	}
-
-	if t.Max < time.Second || t.Max > 10*time.Minute {
-		return fmt.Errorf("max timeout must be between 1s and 10m, got: %v", t.Max)
-	}
-
-	if t.Default > t.Max {
-		return fmt.Errorf("default timeout (%v) cannot be greater than max timeout (%v)", t.Default, t.Max)
-	}
-
 	return nil
+}
+
+// ValidateResult validates using composable validators.
+func (t *TimeoutConfig) ValidateResult() functional.Result[*TimeoutConfig] {
+	result := validation.NewResult()
+
+	result.Merge(validation.Field("default", t.Default,
+		validation.DurationRange(100*time.Millisecond, 5*time.Minute)))
+
+	result.Merge(validation.Field("max", t.Max,
+		validation.DurationRange(time.Second, 10*time.Minute)))
+
+	// Cross-field validation
+	if t.Default > t.Max {
+		result.AddFieldError("default",
+			fmt.Sprintf("cannot be greater than max (%v)", t.Max),
+			"cross_field")
+	}
+
+	if !result.IsValid() {
+		return functional.Err[*TimeoutConfig](
+			fmt.Errorf("validation failed: %v", result.ErrorMessages()))
+	}
+	return functional.Ok(t)
 }
 
 // Clone creates a deep copy of the timeout configuration.
@@ -186,49 +216,53 @@ type RateLimitConfig struct {
 }
 
 // NewRateLimitConfig creates a new rate limit configuration.
-func NewRateLimitConfig(algorithm string, limit int, window time.Duration, burstSize int) (*RateLimitConfig, error) {
+func NewRateLimitConfig(algorithm string, limit int, window time.Duration, burstSize int) functional.Result[*RateLimitConfig] {
 	config := &RateLimitConfig{
 		Algorithm: algorithm,
 		Limit:     limit,
 		Window:    window,
 		BurstSize: burstSize,
 	}
-
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return config.ValidateResult()
 }
 
-// Validate validates rate limit configuration.
+// Validate validates rate limit configuration (legacy compatibility).
 func (r *RateLimitConfig) Validate() error {
-	validAlgorithms := map[string]bool{
-		"token_bucket":   true,
-		"sliding_window": true,
+	result := r.ValidateResult()
+	if result.IsErr() {
+		return result.UnwrapErr()
 	}
-
-	if !validAlgorithms[r.Algorithm] {
-		return fmt.Errorf("algorithm must be 'token_bucket' or 'sliding_window', got: %s", r.Algorithm)
-	}
-
-	if r.Limit < 1 || r.Limit > 100000 {
-		return fmt.Errorf("limit must be between 1 and 100000, got: %d", r.Limit)
-	}
-
-	if r.Window < time.Second || r.Window > time.Hour {
-		return fmt.Errorf("window must be between 1s and 1h, got: %v", r.Window)
-	}
-
-	if r.BurstSize < 1 || r.BurstSize > 10000 {
-		return fmt.Errorf("burst size must be between 1 and 10000, got: %d", r.BurstSize)
-	}
-
-	if r.BurstSize > r.Limit {
-		return fmt.Errorf("burst size (%d) cannot be greater than limit (%d)", r.BurstSize, r.Limit)
-	}
-
 	return nil
+}
+
+// ValidateResult validates using composable validators.
+func (r *RateLimitConfig) ValidateResult() functional.Result[*RateLimitConfig] {
+	result := validation.NewResult()
+
+	result.Merge(validation.Field("algorithm", r.Algorithm,
+		validation.OneOf("token_bucket", "sliding_window")))
+
+	result.Merge(validation.Field("limit", r.Limit,
+		validation.InRange(1, 100000)))
+
+	result.Merge(validation.Field("window", r.Window,
+		validation.DurationRange(time.Second, time.Hour)))
+
+	result.Merge(validation.Field("burst_size", r.BurstSize,
+		validation.InRange(1, 10000)))
+
+	// Cross-field validation
+	if r.BurstSize > r.Limit {
+		result.AddFieldError("burst_size",
+			fmt.Sprintf("cannot be greater than limit (%d)", r.Limit),
+			"cross_field")
+	}
+
+	if !result.IsValid() {
+		return functional.Err[*RateLimitConfig](
+			fmt.Errorf("validation failed: %v", result.ErrorMessages()))
+	}
+	return functional.Ok(r)
 }
 
 // Clone creates a deep copy of the rate limit configuration.
@@ -249,35 +283,42 @@ type BulkheadConfig struct {
 }
 
 // NewBulkheadConfig creates a new bulkhead configuration.
-func NewBulkheadConfig(maxConcurrent, maxQueue int, queueTimeout time.Duration) (*BulkheadConfig, error) {
+func NewBulkheadConfig(maxConcurrent, maxQueue int, queueTimeout time.Duration) functional.Result[*BulkheadConfig] {
 	config := &BulkheadConfig{
 		MaxConcurrent: maxConcurrent,
 		MaxQueue:      maxQueue,
 		QueueTimeout:  queueTimeout,
 	}
-
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return config.ValidateResult()
 }
 
-// Validate validates bulkhead configuration.
+// Validate validates bulkhead configuration (legacy compatibility).
 func (b *BulkheadConfig) Validate() error {
-	if b.MaxConcurrent < 1 || b.MaxConcurrent > 10000 {
-		return fmt.Errorf("max concurrent must be between 1 and 10000, got: %d", b.MaxConcurrent)
+	result := b.ValidateResult()
+	if result.IsErr() {
+		return result.UnwrapErr()
 	}
-
-	if b.MaxQueue < 0 || b.MaxQueue > 10000 {
-		return fmt.Errorf("max queue must be between 0 and 10000, got: %d", b.MaxQueue)
-	}
-
-	if b.QueueTimeout < time.Millisecond || b.QueueTimeout > 30*time.Second {
-		return fmt.Errorf("queue timeout must be between 1ms and 30s, got: %v", b.QueueTimeout)
-	}
-
 	return nil
+}
+
+// ValidateResult validates using composable validators.
+func (b *BulkheadConfig) ValidateResult() functional.Result[*BulkheadConfig] {
+	result := validation.NewResult()
+
+	result.Merge(validation.Field("max_concurrent", b.MaxConcurrent,
+		validation.InRange(1, 10000)))
+
+	result.Merge(validation.Field("max_queue", b.MaxQueue,
+		validation.InRange(0, 10000)))
+
+	result.Merge(validation.Field("queue_timeout", b.QueueTimeout,
+		validation.DurationRange(time.Millisecond, 30*time.Second)))
+
+	if !result.IsValid() {
+		return functional.Err[*BulkheadConfig](
+			fmt.Errorf("validation failed: %v", result.ErrorMessages()))
+	}
+	return functional.Ok(b)
 }
 
 // Clone creates a deep copy of the bulkhead configuration.

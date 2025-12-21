@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/authcorp/libs/go/src/fault"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/interfaces"
-	"github.com/auth-platform/platform/resilience-service/internal/domain/valueobjects"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -50,8 +50,8 @@ func (s *ResilienceService) Execute(ctx context.Context, policyName string, oper
 	duration := time.Since(start)
 	success := err == nil
 
-	// Record metrics
-	metrics := valueobjects.NewExecutionMetrics(policyName, duration, success)
+	// Record metrics using shared type
+	metrics := fault.NewExecutionMetrics(policyName, duration, success)
 	s.metrics.RecordExecution(ctx, metrics)
 
 	if err != nil {
@@ -80,16 +80,17 @@ func (s *ResilienceService) ExecuteWithResult(ctx context.Context, policyName st
 	s.logger.InfoContext(ctx, "executing operation with result and resilience policy",
 		slog.String("policy_name", policyName))
 
-	result, err := s.executor.ExecuteWithResult(ctx, policyName, operation)
+	result := s.executor.ExecuteWithResult(ctx, policyName, operation)
 	
 	duration := time.Since(start)
-	success := err == nil
+	success := result.IsOk()
 
-	// Record metrics
-	metrics := valueobjects.NewExecutionMetrics(policyName, duration, success)
+	// Record metrics using shared type
+	metrics := fault.NewExecutionMetrics(policyName, duration, success)
 	s.metrics.RecordExecution(ctx, metrics)
 
-	if err != nil {
+	if result.IsErr() {
+		err := result.UnwrapErr()
 		s.logger.ErrorContext(ctx, "operation with result failed",
 			slog.String("policy_name", policyName),
 			slog.Duration("duration", duration),
@@ -102,18 +103,13 @@ func (s *ResilienceService) ExecuteWithResult(ctx context.Context, policyName st
 		slog.String("policy_name", policyName),
 		slog.Duration("duration", duration))
 
-	return result, nil
+	return result.Unwrap(), nil
 }
 
-// GetExecutionMetrics returns execution metrics for monitoring.
-func (s *ResilienceService) GetExecutionMetrics(ctx context.Context, policyName string) (valueobjects.ExecutionMetrics, error) {
+// GetExecutionMetrics returns execution metrics for monitoring using shared type.
+func (s *ResilienceService) GetExecutionMetrics(ctx context.Context, policyName string) (fault.ExecutionMetrics, error) {
 	ctx, span := s.tracer.Start(ctx, "resilience.get_metrics")
 	defer span.End()
 
-	// This would typically query a metrics store
-	// For now, return empty metrics as placeholder
-	return valueobjects.ExecutionMetrics{
-		PolicyName: policyName,
-		OccurredAt: time.Now().UTC(),
-	}, nil
+	return fault.NewExecutionMetrics(policyName, 0, true), nil
 }

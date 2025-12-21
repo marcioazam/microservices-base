@@ -111,3 +111,47 @@ func (r *Registry[K, V]) GetOrRegister(key K, factory func() V) V {
 	r.items[key] = v
 	return v
 }
+
+// GetOrDefault retrieves a value by key, or returns the default if not found.
+func (r *Registry[K, V]) GetOrDefault(key K, defaultVal V) V {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if value, ok := r.items[key]; ok {
+		return value
+	}
+	return defaultVal
+}
+
+// Update updates a value by key using the provided function.
+func (r *Registry[K, V]) Update(key K, fn func(V, bool) V) V {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	oldValue, exists := r.items[key]
+	newValue := fn(oldValue, exists)
+	r.items[key] = newValue
+	return newValue
+}
+
+// FilterRegistry returns a new registry with entries that satisfy the predicate.
+func (r *Registry[K, V]) FilterRegistry(predicate func(K, V) bool) *Registry[K, V] {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := NewRegistry[K, V]()
+	for k, v := range r.items {
+		if predicate(k, v) {
+			result.items[k] = v
+		}
+	}
+	return result
+}
+
+// Clone returns a copy of the registry.
+func (r *Registry[K, V]) Clone() *Registry[K, V] {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := NewRegistry[K, V]()
+	for k, v := range r.items {
+		result.items[k] = v
+	}
+	return result
+}

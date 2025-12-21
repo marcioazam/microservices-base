@@ -1,6 +1,7 @@
 package collections
 
 import (
+	"iter"
 	"sync"
 
 	"github.com/authcorp/libs/go/src/functional"
@@ -72,6 +73,24 @@ func (q *Queue[T]) ToSlice() []T {
 	result := make([]T, len(q.items))
 	copy(result, q.items)
 	return result
+}
+
+// All returns a Go 1.23+ iterator over queue elements (FIFO order).
+func (q *Queue[T]) All() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		q.mu.RLock()
+		defer q.mu.RUnlock()
+		for _, item := range q.items {
+			if !yield(item) {
+				return
+			}
+		}
+	}
+}
+
+// Collect returns all elements as a slice.
+func (q *Queue[T]) Collect() []T {
+	return q.ToSlice()
 }
 
 // Stack is a thread-safe LIFO stack.

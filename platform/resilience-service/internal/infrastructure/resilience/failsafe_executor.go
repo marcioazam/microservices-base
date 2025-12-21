@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/authcorp/libs/go/src/functional"
+	libfault "github.com/authcorp/libs/go/src/fault"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/entities"
 	"github.com/auth-platform/platform/resilience-service/internal/domain/interfaces"
-	"github.com/auth-platform/platform/resilience-service/internal/domain/valueobjects"
 	"github.com/failsafe-go/failsafe-go"
 	"github.com/failsafe-go/failsafe-go/bulkhead"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
@@ -57,7 +58,7 @@ func (f *FailsafeExecutor) RegisterPolicy(policy *entities.Policy) error {
 	}
 
 	f.policies[policy.Name()] = policyExecutor
-	
+
 	f.logger.Info("policy registered",
 		slog.String("policy_name", policy.Name()),
 		slog.Int("version", policy.Version()))
@@ -71,7 +72,7 @@ func (f *FailsafeExecutor) UnregisterPolicy(policyName string) {
 	defer f.mu.Unlock()
 
 	delete(f.policies, policyName)
-	
+
 	f.logger.Info("policy unregistered",
 		slog.String("policy_name", policyName))
 }
@@ -87,61 +88,56 @@ func (f *FailsafeExecutor) Execute(ctx context.Context, policyName string, opera
 	}
 
 	start := time.Now()
-	
+
 	_, err := policyExecutor.executor.GetWithExecution(func(exec failsafe.Execution[any]) (any, error) {
-		// Record execution metrics
 		f.recordExecutionMetrics(ctx, policyName, exec)
-		
-		// Execute the operation
 		return nil, operation()
 	})
 
 	duration := time.Since(start)
 	success := err == nil
 
-	// Record final metrics
-	metrics := valueobjects.NewExecutionMetrics(policyName, duration, success)
+	metrics := libfault.NewExecutionMetrics(policyName, duration, success)
 	f.metrics.RecordExecution(ctx, metrics)
 
 	return err
 }
 
 // ExecuteWithResult executes an operation with result and the specified resilience policy.
-func (f *FailsafeExecutor) ExecuteWithResult(ctx context.Context, policyName string, operation func() (any, error)) (any, error) {
+func (f *FailsafeExecutor) ExecuteWithResult(ctx context.Context, policyName string, operation func() (any, error)) functional.Result[any] {
 	f.mu.RLock()
 	policyExecutor, exists := f.policies[policyName]
 	f.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("policy '%s' not found", policyName)
+		return functional.Err[any](fmt.Errorf("policy '%s' not found", policyName))
 	}
 
 	start := time.Now()
-	
+
 	result, err := policyExecutor.executor.GetWithExecution(func(exec failsafe.Execution[any]) (any, error) {
-		// Record execution metrics
 		f.recordExecutionMetrics(ctx, policyName, exec)
-		
-		// Execute the operation
 		return operation()
 	})
 
 	duration := time.Since(start)
 	success := err == nil
 
-	// Record final metrics
-	metrics := valueobjects.NewExecutionMetrics(policyName, duration, success)
+	metrics := libfault.NewExecutionMetrics(policyName, duration, success)
 	f.metrics.RecordExecution(ctx, metrics)
 
-	return result, err
+	if err != nil {
+		return functional.Err[any](err)
+	}
+	return functional.Ok(result)
 }
 
 // createPolicyExecutor creates a failsafe-go executor from a resilience policy.
 func (f *FailsafeExecutor) createPolicyExecutor(policy *entities.Policy) (*PolicyExecutor, error) {
 	var policies []failsafe.Policy[any]
 
-	// Add circuit breaker if configured
-	if cb := policy.CircuitBreaker(); cb != nil {
+	if policy.CircuitBreaker().IsSome() {
+		cb := policy.CircuitBreaker().Unwrap()
 		cbPolicy := circuitbreaker.Builder[any]().
 			WithFailureThreshold(uint(cb.FailureThreshold)).
 			WithSuccessThreshold(uint(cb.SuccessThreshold)).
@@ -156,12 +152,13 @@ func (f *FailsafeExecutor) createPolicyExecutor(policy *entities.Policy) (*Polic
 		policies = append(policies, cbPolicy)
 	}
 
-	// Add retry if configured
-	if retry := policy.Retry(); retry != nil {
+	if policy.Retry().IsSome() {
+		retry := policy.Retry().Unwrap()
+		jitterDuration := time.Duration(float64(retry.BaseDelay) * retry.JitterPercent)
 		retryPolicy := retrypolicy.Builder[any]().
 			WithMaxAttempts(retry.MaxAttempts).
 			WithBackoff(retry.BaseDelay, retry.MaxDelay).
-			WithJitter(time.Duration(float64(retry.BaseDelay) * retry.JitterPercent)).
+			WithJitter(jitterDuration).
 			OnRetryScheduled(func(event failsafe.ExecutionScheduledEvent[any]) {
 				f.logger.Debug("retry scheduled",
 					slog.String("policy_name", policy.Name()),
@@ -172,19 +169,20 @@ func (f *FailsafeExecutor) createPolicyExecutor(policy *entities.Policy) (*Polic
 		policies = append(policies, retryPolicy)
 	}
 
-	// Add timeout if configured
-	if to := policy.Timeout(); to != nil {
+	if policy.Timeout().IsSome() {
+		to := policy.Timeout().Unwrap()
 		timeoutPolicy := timeout.With[any](to.Default)
 		policies = append(policies, timeoutPolicy)
 	}
 
-	// Add rate limiter if configured
-	if rl := policy.RateLimit(); rl != nil {
+	if policy.RateLimit().IsSome() {
+		rl := policy.RateLimit().Unwrap()
 		var rateLimiter failsafe.Policy[any]
-		
+
 		switch rl.Algorithm {
 		case "token_bucket":
-			rateLimiter = ratelimiter.BurstyBuilder[any](uint(rl.Limit), time.Duration(rl.Window.Nanoseconds()/int64(rl.Limit))).
+			interval := time.Duration(rl.Window.Nanoseconds() / int64(rl.Limit))
+			rateLimiter = ratelimiter.BurstyBuilder[any](uint(rl.Limit), interval).
 				WithMaxWaitTime(time.Second).
 				Build()
 		case "sliding_window":
@@ -194,12 +192,12 @@ func (f *FailsafeExecutor) createPolicyExecutor(policy *entities.Policy) (*Polic
 		default:
 			return nil, fmt.Errorf("unsupported rate limit algorithm: %s", rl.Algorithm)
 		}
-		
+
 		policies = append(policies, rateLimiter)
 	}
 
-	// Add bulkhead if configured
-	if bh := policy.Bulkhead(); bh != nil {
+	if policy.Bulkhead().IsSome() {
+		bh := policy.Bulkhead().Unwrap()
 		bulkheadPolicy := bulkhead.Builder[any](uint(bh.MaxConcurrent)).
 			WithMaxWaitTime(bh.QueueTimeout).
 			Build()
@@ -210,7 +208,6 @@ func (f *FailsafeExecutor) createPolicyExecutor(policy *entities.Policy) (*Polic
 		return nil, fmt.Errorf("policy '%s' has no resilience patterns configured", policy.Name())
 	}
 
-	// Create failsafe executor with all policies
 	executor := failsafe.NewExecutor[any](policies...)
 
 	return &PolicyExecutor{
@@ -222,14 +219,9 @@ func (f *FailsafeExecutor) createPolicyExecutor(policy *entities.Policy) (*Polic
 
 // recordExecutionMetrics records metrics during execution.
 func (f *FailsafeExecutor) recordExecutionMetrics(ctx context.Context, policyName string, exec failsafe.Execution[any]) {
-	// Record retry attempts
 	if exec.Attempts() > 1 {
 		f.metrics.RecordRetryAttempt(ctx, policyName, exec.Attempts())
 	}
-
-	// Record circuit breaker state (if available)
-	// Note: This would require access to the circuit breaker instance
-	// For now, we'll skip this as failsafe-go doesn't expose state during execution
 }
 
 // GetPolicyNames returns the names of all registered policies.
@@ -253,3 +245,6 @@ func (f *FailsafeExecutor) GetPolicyExecutor(policyName string) (*PolicyExecutor
 	executor, exists := f.policies[policyName]
 	return executor, exists
 }
+
+// Ensure FailsafeExecutor implements ResilienceExecutor.
+var _ interfaces.ResilienceExecutor = (*FailsafeExecutor)(nil)
