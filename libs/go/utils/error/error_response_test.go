@@ -23,7 +23,8 @@ func TestErrorResponseStructure(t *testing.T) {
 			"INTERNAL_ERROR",
 		}).Draw(t, "code")
 
-		message := rapid.String().Draw(t, "message")
+		// Generate non-empty message (min 1 char)
+		message := rapid.StringN(1, 100, -1).Draw(t, "message")
 		correlationID := rapid.StringMatching(`[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`).Draw(t, "correlationID")
 
 		resp := NewErrorResponse(code, message, correlationID)

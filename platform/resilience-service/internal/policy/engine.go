@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/auth-platform/libs/go/resilience"
 	"github.com/auth-platform/platform/resilience-service/internal/domain"
 	"gopkg.in/yaml.v3"
 )
@@ -17,7 +20,7 @@ import (
 // Engine implements the PolicyEngine interface.
 type Engine struct {
 	mu             sync.RWMutex
-	policies       map[string]*domain.ResiliencePolicy
+	policies       map[string]*resilience.ResiliencePolicy
 	configPath     string
 	reloadInterval time.Duration
 	stopCh         chan struct{}
@@ -32,9 +35,12 @@ type Config struct {
 
 // NewEngine creates a new policy engine.
 func NewEngine(cfg Config) *Engine {
+	// Clean and normalize config path
+	configPath := filepath.Clean(cfg.ConfigPath)
+
 	return &Engine{
-		policies:       make(map[string]*domain.ResiliencePolicy),
-		configPath:     cfg.ConfigPath,
+		policies:       make(map[string]*resilience.ResiliencePolicy),
+		configPath:     configPath,
 		reloadInterval: cfg.ReloadInterval,
 		stopCh:         make(chan struct{}),
 		eventCh:        make(chan domain.PolicyEvent, 100),
@@ -42,7 +48,7 @@ func NewEngine(cfg Config) *Engine {
 }
 
 // GetPolicy retrieves policy by name.
-func (e *Engine) GetPolicy(name string) (*domain.ResiliencePolicy, error) {
+func (e *Engine) GetPolicy(name string) (*resilience.ResiliencePolicy, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -55,7 +61,7 @@ func (e *Engine) GetPolicy(name string) (*domain.ResiliencePolicy, error) {
 }
 
 // UpdatePolicy updates or creates a policy.
-func (e *Engine) UpdatePolicy(policy *domain.ResiliencePolicy) error {
+func (e *Engine) UpdatePolicy(policy *resilience.ResiliencePolicy) error {
 	if err := e.Validate(policy); err != nil {
 		return err
 	}
@@ -76,7 +82,7 @@ func (e *Engine) UpdatePolicy(policy *domain.ResiliencePolicy) error {
 
 	// Emit event
 	select {
-	case e.eventCh <- domain.PolicyEvent{Type: eventType, Policy: policy}:
+	case e.eventCh <- domain.PolicyEvent{Type: eventType, PolicyName: policy.Name, Version: policy.Version, Timestamp: resilience.NowUTC()}:
 	default:
 	}
 
@@ -97,7 +103,7 @@ func (e *Engine) DeletePolicy(name string) error {
 
 	// Emit event
 	select {
-	case e.eventCh <- domain.PolicyEvent{Type: domain.PolicyDeleted, Policy: policy}:
+	case e.eventCh <- domain.PolicyEvent{Type: domain.PolicyDeleted, PolicyName: policy.Name, Version: policy.Version, Timestamp: resilience.NowUTC()}:
 	default:
 	}
 
@@ -105,16 +111,29 @@ func (e *Engine) DeletePolicy(name string) error {
 }
 
 // ListPolicies returns all policies.
-func (e *Engine) ListPolicies() ([]*domain.ResiliencePolicy, error) {
+func (e *Engine) ListPolicies() ([]*resilience.ResiliencePolicy, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	result := make([]*domain.ResiliencePolicy, 0, len(e.policies))
+	result := make([]*resilience.ResiliencePolicy, 0, len(e.policies))
 	for _, p := range e.policies {
 		result = append(result, p)
 	}
 
 	return result, nil
+}
+
+// Policies returns an iterator over all policies.
+func (e *Engine) Policies() iter.Seq[*resilience.ResiliencePolicy] {
+	return func(yield func(*resilience.ResiliencePolicy) bool) {
+		e.mu.RLock()
+		defer e.mu.RUnlock()
+		for _, p := range e.policies {
+			if !yield(p) {
+				return
+			}
+		}
+	}
 }
 
 // WatchPolicies streams policy changes.
@@ -123,101 +142,9 @@ func (e *Engine) WatchPolicies(ctx context.Context) (<-chan domain.PolicyEvent, 
 }
 
 // Validate validates a policy configuration.
-func (e *Engine) Validate(policy *domain.ResiliencePolicy) error {
-	if policy.Name == "" {
-		return domain.NewInvalidPolicyError("policy name is required")
-	}
-
-	if policy.CircuitBreaker != nil {
-		if err := validateCircuitBreaker(policy.CircuitBreaker); err != nil {
-			return err
-		}
-	}
-
-	if policy.Retry != nil {
-		if err := validateRetry(policy.Retry); err != nil {
-			return err
-		}
-	}
-
-	if policy.Timeout != nil {
-		if err := validateTimeout(policy.Timeout); err != nil {
-			return err
-		}
-	}
-
-	if policy.RateLimit != nil {
-		if err := validateRateLimit(policy.RateLimit); err != nil {
-			return err
-		}
-	}
-
-	if policy.Bulkhead != nil {
-		if err := validateBulkhead(policy.Bulkhead); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func validateCircuitBreaker(cfg *domain.CircuitBreakerConfig) error {
-	if cfg.FailureThreshold <= 0 {
-		return domain.NewInvalidPolicyError("circuit_breaker.failure_threshold must be positive")
-	}
-	if cfg.SuccessThreshold <= 0 {
-		return domain.NewInvalidPolicyError("circuit_breaker.success_threshold must be positive")
-	}
-	if cfg.Timeout <= 0 {
-		return domain.NewInvalidPolicyError("circuit_breaker.timeout must be positive")
-	}
-	return nil
-}
-
-func validateRetry(cfg *domain.RetryConfig) error {
-	if cfg.MaxAttempts <= 0 {
-		return domain.NewInvalidPolicyError("retry.max_attempts must be positive")
-	}
-	if cfg.BaseDelay <= 0 {
-		return domain.NewInvalidPolicyError("retry.base_delay must be positive")
-	}
-	if cfg.MaxDelay <= 0 {
-		return domain.NewInvalidPolicyError("retry.max_delay must be positive")
-	}
-	if cfg.Multiplier < 1.0 {
-		return domain.NewInvalidPolicyError("retry.multiplier must be at least 1.0")
-	}
-	if cfg.JitterPercent < 0 || cfg.JitterPercent > 1.0 {
-		return domain.NewInvalidPolicyError("retry.jitter_percent must be between 0 and 1")
-	}
-	return nil
-}
-
-func validateTimeout(cfg *domain.TimeoutConfig) error {
-	if cfg.Default <= 0 {
-		return domain.NewInvalidPolicyError("timeout.default must be positive")
-	}
-	return nil
-}
-
-func validateRateLimit(cfg *domain.RateLimitConfig) error {
-	if cfg.Limit <= 0 {
-		return domain.NewInvalidPolicyError("rate_limit.limit must be positive")
-	}
-	if cfg.Window <= 0 {
-		return domain.NewInvalidPolicyError("rate_limit.window must be positive")
-	}
-	return nil
-}
-
-func validateBulkhead(cfg *domain.BulkheadConfig) error {
-	if cfg.MaxConcurrent <= 0 {
-		return domain.NewInvalidPolicyError("bulkhead.max_concurrent must be positive")
-	}
-	if cfg.MaxQueue < 0 {
-		return domain.NewInvalidPolicyError("bulkhead.max_queue must be non-negative")
-	}
-	return nil
+// Delegates to resilience.ResiliencePolicy.Validate() for validation logic.
+func (e *Engine) Validate(policy *resilience.ResiliencePolicy) error {
+	return policy.Validate()
 }
 
 // StartHotReload starts watching for configuration changes.
@@ -270,12 +197,17 @@ func (e *Engine) watchLoop(ctx context.Context) {
 }
 
 func (e *Engine) loadFromFile() error {
+	// Validate path to prevent path traversal attacks
+	if err := e.validatePolicyPath(e.configPath); err != nil {
+		return fmt.Errorf("invalid policy path: %w", err)
+	}
+
 	data, err := os.ReadFile(e.configPath)
 	if err != nil {
 		return err
 	}
 
-	var policies []*domain.ResiliencePolicy
+	var policies []*resilience.ResiliencePolicy
 
 	ext := filepath.Ext(e.configPath)
 	switch ext {
@@ -295,6 +227,76 @@ func (e *Engine) loadFromFile() error {
 		if err := e.UpdatePolicy(p); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// validatePolicyPath validates that a file path is safe to access.
+// It prevents path traversal attacks by ensuring the path stays within
+// the expected policy configuration directory.
+func (e *Engine) validatePolicyPath(path string) error {
+	return ValidatePolicyPath(path, filepath.Dir(e.configPath))
+}
+
+// ValidatePolicyPath validates that a file path is safe to access.
+// It prevents path traversal attacks by ensuring the path stays within
+// the specified base directory.
+func ValidatePolicyPath(path, basePath string) error {
+	if path == "" {
+		return fmt.Errorf("empty path")
+	}
+
+	// Check for null bytes (common attack vector)
+	if strings.ContainsRune(path, '\x00') {
+		return fmt.Errorf("path contains null bytes")
+	}
+
+	// Reject paths with parent directory references BEFORE cleaning
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path contains parent directory reference")
+	}
+
+	// Clean the path to resolve any . or .. components
+	cleanPath := filepath.Clean(path)
+
+	// If path is absolute, check it's within base
+	if filepath.IsAbs(path) {
+		absBase, err := filepath.Abs(basePath)
+		if err != nil {
+			return fmt.Errorf("resolve absolute base: %w", err)
+		}
+		if !strings.HasPrefix(cleanPath, absBase) {
+			return fmt.Errorf("absolute path '%s' is outside allowed directory '%s'", path, basePath)
+		}
+		return nil
+	}
+
+	// For relative paths, resolve and check
+	baseDir := basePath
+	if baseDir == "." || baseDir == "" {
+		var err error
+		baseDir, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get working directory: %w", err)
+		}
+	}
+	baseDir = filepath.Clean(baseDir)
+
+	// Resolve to absolute paths for comparison
+	absPath, err := filepath.Abs(filepath.Join(baseDir, cleanPath))
+	if err != nil {
+		return fmt.Errorf("resolve absolute path: %w", err)
+	}
+
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return fmt.Errorf("resolve absolute base: %w", err)
+	}
+
+	// Ensure the path is within the base directory
+	if !strings.HasPrefix(absPath, absBase) {
+		return fmt.Errorf("path '%s' is outside allowed directory '%s'", path, baseDir)
 	}
 
 	return nil

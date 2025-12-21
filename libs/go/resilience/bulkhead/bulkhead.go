@@ -1,169 +1,131 @@
-// Package bulkhead provides generic bulkhead (concurrency limiter) implementation.
+// Package bulkhead implements the bulkhead isolation pattern.
 package bulkhead
 
 import (
 	"context"
-	"errors"
-	"sync"
 	"sync/atomic"
 	"time"
+
+	liberror "github.com/auth-platform/libs/go/error"
+	"github.com/auth-platform/libs/go/resilience"
 )
 
-var (
-	ErrBulkheadFull = errors.New("bulkhead is full")
-)
+// Bulkhead implements semaphore-based concurrency limiting.
+type Bulkhead struct {
+	name          string
+	maxConcurrent int
+	maxQueue      int
+	queueTimeout  time.Duration
 
-// Config holds bulkhead configuration.
+	semaphore     chan struct{}
+	queue         chan struct{}
+	activeCount   int64
+	queuedCount   int64
+	rejectedCount int64
+
+	eventEmitter  resilience.EventEmitter
+	correlationFn func() string
+}
+
+// Config holds bulkhead creation options.
 type Config struct {
+	Name          string
 	MaxConcurrent int
 	MaxQueue      int
 	QueueTimeout  time.Duration
-}
-
-// DefaultConfig returns a default configuration.
-func DefaultConfig() Config {
-	return Config{
-		MaxConcurrent: 10,
-		MaxQueue:      100,
-		QueueTimeout:  5 * time.Second,
-	}
-}
-
-// Option configures a bulkhead.
-type Option func(*Config)
-
-// WithMaxConcurrent sets the maximum concurrent executions.
-func WithMaxConcurrent(n int) Option {
-	return func(c *Config) { c.MaxConcurrent = n }
-}
-
-// WithMaxQueue sets the maximum queue size.
-func WithMaxQueue(n int) Option {
-	return func(c *Config) { c.MaxQueue = n }
-}
-
-// WithQueueTimeout sets the queue timeout.
-func WithQueueTimeout(d time.Duration) Option {
-	return func(c *Config) { c.QueueTimeout = d }
-}
-
-// Metrics holds bulkhead metrics.
-type Metrics struct {
-	ActiveCount   int64
-	QueuedCount   int64
-	CompletedCount int64
-	RejectedCount int64
-}
-
-// Bulkhead is a generic bulkhead implementation.
-type Bulkhead[T any] struct {
-	name   string
-	config Config
-
-	semaphore chan struct{}
-	queue     chan struct{}
-
-	activeCount    int64
-	queuedCount    int64
-	completedCount int64
-	rejectedCount  int64
-
-	mu sync.RWMutex
+	EventEmitter  resilience.EventEmitter
+	CorrelationFn func() string
 }
 
 // New creates a new bulkhead.
-func New[T any](name string, maxConcurrent int, opts ...Option) *Bulkhead[T] {
-	config := DefaultConfig()
-	config.MaxConcurrent = maxConcurrent
-	for _, opt := range opts {
-		opt(&config)
-	}
-
-	return &Bulkhead[T]{
-		name:      name,
-		config:    config,
-		semaphore: make(chan struct{}, config.MaxConcurrent),
-		queue:     make(chan struct{}, config.MaxQueue),
+func New(cfg Config) *Bulkhead {
+	return &Bulkhead{
+		name:          cfg.Name,
+		maxConcurrent: cfg.MaxConcurrent,
+		maxQueue:      cfg.MaxQueue,
+		queueTimeout:  cfg.QueueTimeout,
+		semaphore:     make(chan struct{}, cfg.MaxConcurrent),
+		queue:         make(chan struct{}, cfg.MaxQueue),
+		eventEmitter:  cfg.EventEmitter,
+		correlationFn: resilience.EnsureCorrelationFunc(cfg.CorrelationFn),
 	}
 }
 
-// Execute runs the operation with bulkhead protection.
-func (b *Bulkhead[T]) Execute(ctx context.Context, op func() (T, error)) (T, error) {
-	var zero T
-
-	// Try to acquire semaphore immediately
+// Acquire attempts to acquire a permit.
+func (b *Bulkhead) Acquire(ctx context.Context) error {
+	// Try to acquire immediately
 	select {
 	case b.semaphore <- struct{}{}:
 		atomic.AddInt64(&b.activeCount, 1)
-		defer func() {
-			<-b.semaphore
-			atomic.AddInt64(&b.activeCount, -1)
-			atomic.AddInt64(&b.completedCount, 1)
-		}()
-		return op()
+		return nil
 	default:
 	}
 
-	// Try to queue
+	// Try to enter queue
 	select {
 	case b.queue <- struct{}{}:
 		atomic.AddInt64(&b.queuedCount, 1)
-		defer func() {
-			<-b.queue
-			atomic.AddInt64(&b.queuedCount, -1)
-		}()
 	default:
+		// Queue is full
 		atomic.AddInt64(&b.rejectedCount, 1)
-		return zero, ErrBulkheadFull
+		b.emitRejectionEvent()
+		return liberror.NewBulkheadFullError(b.name)
 	}
 
-	// Wait for semaphore with timeout
-	timeout := b.config.QueueTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining < timeout {
-			timeout = remaining
-		}
+	// Wait in queue for semaphore
+	defer func() {
+		<-b.queue
+		atomic.AddInt64(&b.queuedCount, -1)
+	}()
+
+	// Create timeout context if configured
+	waitCtx := ctx
+	var cancel context.CancelFunc
+	if b.queueTimeout > 0 {
+		waitCtx, cancel = context.WithTimeout(ctx, b.queueTimeout)
+		defer cancel()
 	}
 
 	select {
 	case b.semaphore <- struct{}{}:
 		atomic.AddInt64(&b.activeCount, 1)
-		defer func() {
-			<-b.semaphore
-			atomic.AddInt64(&b.activeCount, -1)
-			atomic.AddInt64(&b.completedCount, 1)
-		}()
-		return op()
-	case <-time.After(timeout):
+		return nil
+	case <-waitCtx.Done():
 		atomic.AddInt64(&b.rejectedCount, 1)
-		return zero, ErrBulkheadFull
-	case <-ctx.Done():
-		return zero, ctx.Err()
+		b.emitRejectionEvent()
+		return liberror.NewBulkheadFullError(b.name)
 	}
 }
 
-// Metrics returns current bulkhead metrics.
-func (b *Bulkhead[T]) Metrics() Metrics {
-	return Metrics{
-		ActiveCount:    atomic.LoadInt64(&b.activeCount),
-		QueuedCount:    atomic.LoadInt64(&b.queuedCount),
-		CompletedCount: atomic.LoadInt64(&b.completedCount),
-		RejectedCount:  atomic.LoadInt64(&b.rejectedCount),
+// Release returns a permit.
+func (b *Bulkhead) Release() {
+	select {
+	case <-b.semaphore:
+		atomic.AddInt64(&b.activeCount, -1)
+	default:
+		// Semaphore was empty, shouldn't happen in normal use
 	}
 }
 
-// Name returns the bulkhead name.
-func (b *Bulkhead[T]) Name() string {
-	return b.name
+// GetMetrics returns current utilization.
+func (b *Bulkhead) GetMetrics() resilience.BulkheadMetrics {
+	return resilience.BulkheadMetrics{
+		ActiveCount:   int(atomic.LoadInt64(&b.activeCount)),
+		QueuedCount:   int(atomic.LoadInt64(&b.queuedCount)),
+		RejectedCount: atomic.LoadInt64(&b.rejectedCount),
+	}
 }
 
-// AvailablePermits returns the number of available permits.
-func (b *Bulkhead[T]) AvailablePermits() int {
-	return b.config.MaxConcurrent - int(atomic.LoadInt64(&b.activeCount))
-}
+// emitRejectionEvent emits a bulkhead rejection event.
+func (b *Bulkhead) emitRejectionEvent() {
+	metrics := b.GetMetrics()
+	event := resilience.NewEvent(resilience.EventBulkheadRejection, b.name).
+		WithCorrelationID(b.correlationFn()).
+		WithMetadata("partition", b.name).
+		WithMetadata("active_count", metrics.ActiveCount).
+		WithMetadata("queued_count", metrics.QueuedCount).
+		WithMetadata("max_concurrent", b.maxConcurrent).
+		WithMetadata("max_queue", b.maxQueue)
 
-// QueueSpace returns the available queue space.
-func (b *Bulkhead[T]) QueueSpace() int {
-	return b.config.MaxQueue - int(atomic.LoadInt64(&b.queuedCount))
+	resilience.EmitEvent(b.eventEmitter, *event)
 }

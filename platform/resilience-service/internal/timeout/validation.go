@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/auth-platform/platform/resilience-service/internal/domain"
+	"github.com/auth-platform/libs/go/resilience"
 )
 
 const (
@@ -26,7 +26,7 @@ func (e ValidationError) Error() string {
 }
 
 // ValidateConfig validates a timeout configuration.
-func ValidateConfig(cfg domain.TimeoutConfig) error {
+func ValidateConfig(cfg resilience.TimeoutConfig) error {
 	if err := validateDuration("default", cfg.Default); err != nil {
 		return err
 	}

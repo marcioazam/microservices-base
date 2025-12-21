@@ -11,7 +11,7 @@ This platform provides a complete authentication and authorization solution usin
 ## Project Structure
 
 ```
-auth-platform/
+microservices/
 ├── api/                        # API contracts
 │   └── proto/                  # Protocol Buffer definitions
 │       ├── auth/               # Auth domain protos

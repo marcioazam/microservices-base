@@ -1,159 +1,102 @@
 ---
 inclusion: always
 ---
-# ARCHITECTURAL AGENT - ENFORCEMENT PROTOCOL
+# AGENT RULES - FILE SIZE & ARCHITECTURE ENFORCEMENT
 
-## FILE SIZE CONSTRAINT
-**HARD LIMIT**: 400 non-blank lines per file
-**VALIDATION**: Execute on every file operation
-**ACTION**: Auto-split when threshold exceeded
-**ENFORCEMENT**: Zero tolerance policy
+**CRITICAL RULE**: Max 400 lines per file (non-blank) | Auto-validate EVERY create/edit | Auto-split if exceeded | No exceptions
 
-## DIRECTORY STRUCTURE
+## ARCHITECTURE STRUCTURE
 
-```
 src/
-├── api/
-│   ├── controllers/
-│   ├── middlewares/
-│   └── routes/
-├── services/
-│   └── {domain}/
-│       ├── {name}.service.ts
-│       ├── {name}.repository.ts
-│       └── {name}.validator.ts
-├── domain/
-│   ├── entities/
-│   └── interfaces/
-├── infrastructure/
-│   ├── database/
-│   ├── cache/
-│   └── messaging/
-├── shared/
-│   ├── utils/
-│   ├── constants/
-│   └── types/
-└── config/
+- api/controllers/middlewares/routes/
+- services/{domain}/{name}.service|repository|validator.ts
+- domain/entities/interfaces/
+- infrastructure/database/cache/messaging/
+- shared/utils/constants/types/
+- config/
 
-tests/
-├── unit/
-│   └── services/{domain}/{name}.spec.ts
-├── integration/
-│   └── api|infrastructure/
-├── e2e/
-│   └── {feature}-flows/
-├── fixtures/
-└── mocks/
-```
+tests/ (MIRRORS src/)
+- unit/services/{domain}/{name}.spec.ts
+- integration/api|infrastructure/
+- e2e/{feature}-flows/
+- fixtures/mocks/
 
-## OPERATIONAL PROTOCOL
+**Rules**: Test path = Source path | 1 source = 1+ test | Mirror structure mandatory
 
-### Pre-Operation Validation
-1. Calculate non-blank line count
-2. Verify architectural placement
-3. Validate naming conventions
-4. Check dependency graph
+## AUTO-VALIDATION WORKFLOW
 
-### Threshold Breach Response
-1. Halt operation immediately
-2. Analyze structural boundaries
-3. Identify extraction candidates
-4. Execute decomposition strategy
-5. Update dependency graph
-6. Synchronize test structure
-7. Execute test suite
-8. Generate operation report
+ON EVERY FILE OPERATION:
+1. Count non-blank lines
+2. IF >400 → HALT + analyze split points
+3. Split by: multiple classes → 1/file | large class → extract helpers | mixed concerns → separate | long functions → extract
+4. Update imports/exports
+5. Move/split tests
+6. Run test suite
+7. Report changes
 
-## DECOMPOSITION STRATEGIES
+## SPLIT PATTERNS
 
-### Class Extraction
-Split multi-class files into single-responsibility units maintaining cohesion boundaries
+**Class Extraction**: Split 450-line file into 3 files of ~150 lines each by extracting authentication, profile management, and notifications into separate services
 
-### Helper Extraction
-Extract utility functions into dedicated modules preserving functional purity
+**Helper Extraction**: Split 500-line service into core service (200 lines) plus separate calculator, validator, and payment processing helpers
 
-### Feature Segregation
-Separate distinct business capabilities into isolated modules
+**Feature Modules**: Split 600-line controller into separate user, product, and order controllers
 
-### Test Mirroring
-Maintain structural isomorphism between source and test directories
+**Test Organization**: Mirror source structure - src/services/user/user.service.ts creates tests/unit/services/user/user.service.spec.ts + tests/integration/services/user/user.integration.spec.ts + tests/e2e/user-flows/
 
-## VALIDATION CHECKPOINTS
+## EXECUTION CHECKLIST
 
-### File Creation
-- Architectural conformance verification
-- Line count validation
-- Test file generation
-- Export barrel update
+**Create**: Verify architecture placement | Check <400 lines | Create test file | Update exports
 
-### File Modification
-- Post-edit line count check
-- Automatic decomposition trigger
-- Import dependency resolution
-- Regression test execution
+**Edit**: Count after edit | IF >400 → auto-split | Update imports | Re-run tests | Verify no regressions
 
-### File Decomposition
-- Single Responsibility Principle adherence
-- Logical unit extraction
-- Cross-reference update
-- Test suite synchronization
+**Split**: Extract logical units | Maintain SRP | Update imports | Move/split tests | Run suite | Document
 
-## AUTOMATED RESPONSES
+## VIOLATIONS & AUTO-FIX
 
-### Service Generation Trigger
-1. Generate service module at designated path
-2. Generate repository module at designated path
-3. Generate validator module at designated path
-4. Create unit test suite
-5. Create integration test suite
-6. Update barrel exports
-7. Validate constraint compliance
+**Monolithic File**: 850-line file automatically split into 3 files (280+290+280) with import updates and test verification
 
-### Threshold Violation Trigger
-1. Structural analysis execution
-2. Boundary identification
-3. Decomposition strategy proposal
-4. Extraction execution
-5. Dependency resolution
-6. Test synchronization
-7. Verification suite execution
+**Wrong Test Location**: Move from tests/payment.spec.ts to tests/unit/services/payment/payment.service.spec.ts with import updates
 
-## CONTINUOUS INTEGRATION GATES
+**Mixed Test Types**: Split 500-line mixed test into separate unit, integration, and e2e test files
 
-### Pre-Commit Validation
-- File size constraint verification
-- Structural isomorphism validation
-- Code coverage threshold enforcement
+## AUTOMATION TRIGGERS
 
-### Build Pipeline Validation
-- Maximum line count compliance
-- Test-to-source ratio verification
-- Architectural pattern adherence
+**"create service"**:
+1. Create src/services/{domain}/{domain}.service|repository|validator.ts
+2. Create tests/unit/services/{domain}/{domain}.service.spec.ts
+3. Create tests/integration/services/{domain}/{domain}.integration.spec.ts
+4. Add barrel exports
+5. Validate <400 lines each
 
-## ENFORCEMENT COMMANDS
+**File >400 lines**:
+1. Analyze structure (classes/functions/concerns)
+2. Identify boundaries
+3. Propose split strategy
+4. Execute: extract → update imports → move tests → run suite
+5. Report with file tree
 
-```
-npm run lint:file-size
-npm run test:validate-structure
-npm run test:fix-structure
-npm run test:generate-missing
-```
+## CI/CD GATES
+
+pre-commit:
+- Check all TypeScript files for >400 lines → FAIL
+- Verify src/ tree matches tests/unit/ tree → FAIL if not mirrored
+- Run jest coverage → FAIL if <80% per module
+
+build:
+- Max lines: 400
+- Test ratio: 1:1
+- Architecture compliance: 100%
+
+## COMMANDS
+
+npm run lint:file-size - Check violations
+npm run test:validate-structure - Verify mirror
+npm run test:fix-structure - Auto-fix
+npm run test:generate-missing - Create missing tests
 
 ## CORE PRINCIPLES
 
-- Line limit enforcement without exception
-- Automatic decomposition mandate
-- Test parity requirement
-- Structural mirroring obligation
-- Single Responsibility Principle adherence
-- Continuous integration enforcement
-- Proactive validation execution
+400 lines = HARD limit | Auto-split mandatory | Test parity required | Mirror structure enforced | SRP always | No exceptions | CI enforced | Proactive validation
 
-## SUCCESS CRITERIA
-
-- Zero files exceeding constraint
-- Complete test-source mirroring
-- Zero architectural violations
-- Full CI/CD compliance
-- Automated enforcement active
-- No manual intervention required
+**SUCCESS**: Every file <400 lines | Test mirrors source | Zero violations | 100% CI compliance

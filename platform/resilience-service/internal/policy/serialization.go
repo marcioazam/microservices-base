@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/auth-platform/platform/resilience-service/internal/domain"
+	"github.com/auth-platform/libs/go/resilience"
 )
 
 // MarshalPolicy serializes a policy to JSON.
-func MarshalPolicy(policy *domain.ResiliencePolicy) ([]byte, error) {
+func MarshalPolicy(policy *resilience.ResiliencePolicy) ([]byte, error) {
 	return json.Marshal(policy)
 }
 
 // UnmarshalPolicy deserializes a policy from JSON.
-func UnmarshalPolicy(data []byte) (*domain.ResiliencePolicy, error) {
-	var policy domain.ResiliencePolicy
+func UnmarshalPolicy(data []byte) (*resilience.ResiliencePolicy, error) {
+	var policy resilience.ResiliencePolicy
 	if err := json.Unmarshal(data, &policy); err != nil {
 		return nil, fmt.Errorf("unmarshal policy: %w", err)
 	}
@@ -23,7 +23,7 @@ func UnmarshalPolicy(data []byte) (*domain.ResiliencePolicy, error) {
 }
 
 // PrettyPrint returns a human-readable representation of the policy.
-func PrettyPrint(policy *domain.ResiliencePolicy) string {
+func PrettyPrint(policy *resilience.ResiliencePolicy) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("Policy: %s (v%d)\n", policy.Name, policy.Version))

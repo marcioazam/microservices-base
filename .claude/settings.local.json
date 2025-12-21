@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(find:*)",
+      "Bash(go tool cover:*)",
+      "Bash(go build:*)",
+      "Bash(go clean:*)",
+      "Bash(go mod tidy:*)"
+    ]
+  }
+}

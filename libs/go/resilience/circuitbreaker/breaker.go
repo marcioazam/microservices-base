@@ -1,233 +1,246 @@
-// Package circuitbreaker provides a generic circuit breaker implementation.
+// Package circuitbreaker implements the circuit breaker pattern.
 package circuitbreaker
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
+
+	liberror "github.com/auth-platform/libs/go/error"
+	"github.com/auth-platform/libs/go/resilience"
 )
 
-// State represents the circuit breaker state.
-type State int
-
-const (
-	StateClosed State = iota
-	StateOpen
-	StateHalfOpen
-)
-
-func (s State) String() string {
-	switch s {
-	case StateClosed:
-		return "closed"
-	case StateOpen:
-		return "open"
-	case StateHalfOpen:
-		return "half-open"
-	default:
-		return "unknown"
-	}
+// Breaker implements the CircuitBreaker interface.
+type Breaker struct {
+<<<<<<<< HEAD:platform/resilience-service/internal/circuitbreaker/breaker.go
+	mu           sync.RWMutex
+	config       domain.CircuitBreakerConfig
+	serviceName  string
+	state        domain.CircuitState
+	failureCount int
+	successCount int
+	lastFailure  *time.Time
+	lastChange   time.Time
+	version      int64
+	openedAt     time.Time
+	eventBuilder *domain.EventBuilder
+========
+	mu            sync.RWMutex
+	config        resilience.CircuitBreakerConfig
+	serviceName   string
+	state         resilience.CircuitState
+	failureCount  int
+	successCount  int
+	lastFailure   *time.Time
+	lastChange    time.Time
+	version       int64
+	openedAt      time.Time
+	eventEmitter  resilience.EventEmitter
+	correlationFn func() string
+>>>>>>>> e56c8d3e968a09fa21b79cf641348eeeb213fc78:libs/go/resilience/circuitbreaker/breaker.go
 }
 
-var (
-	ErrCircuitOpen = errors.New("circuit breaker is open")
-)
-
-// Config holds circuit breaker configuration.
+// Config holds circuit breaker creation options.
 type Config struct {
-	FailureThreshold int
-	SuccessThreshold int
-	Timeout          time.Duration
-	HalfOpenMaxCalls int
-}
-
-// DefaultConfig returns a default configuration.
-func DefaultConfig() Config {
-	return Config{
-		FailureThreshold: 5,
-		SuccessThreshold: 2,
-		Timeout:          30 * time.Second,
-		HalfOpenMaxCalls: 3,
-	}
-}
-
-// Option configures a circuit breaker.
-type Option func(*Config)
-
-// WithFailureThreshold sets the failure threshold.
-func WithFailureThreshold(n int) Option {
-	return func(c *Config) { c.FailureThreshold = n }
-}
-
-// WithSuccessThreshold sets the success threshold.
-func WithSuccessThreshold(n int) Option {
-	return func(c *Config) { c.SuccessThreshold = n }
-}
-
-// WithTimeout sets the timeout duration.
-func WithTimeout(d time.Duration) Option {
-	return func(c *Config) { c.Timeout = d }
-}
-
-// WithHalfOpenMaxCalls sets the max calls in half-open state.
-func WithHalfOpenMaxCalls(n int) Option {
-	return func(c *Config) { c.HalfOpenMaxCalls = n }
-}
-
-// CircuitBreaker is a generic circuit breaker.
-type CircuitBreaker[T any] struct {
-	name   string
-	config Config
-	mu     sync.RWMutex
-
-	state           State
-	failures        int
-	successes       int
-	halfOpenCalls   int
-	lastFailureTime time.Time
+<<<<<<<< HEAD:platform/resilience-service/internal/circuitbreaker/breaker.go
+	ServiceName  string
+	Config       domain.CircuitBreakerConfig
+	EventBuilder *domain.EventBuilder
+========
+	ServiceName   string
+	Config        resilience.CircuitBreakerConfig
+	EventEmitter  resilience.EventEmitter
+	CorrelationFn func() string
+>>>>>>>> e56c8d3e968a09fa21b79cf641348eeeb213fc78:libs/go/resilience/circuitbreaker/breaker.go
 }
 
 // New creates a new circuit breaker.
-func New[T any](name string, opts ...Option) *CircuitBreaker[T] {
-	config := DefaultConfig()
-	for _, opt := range opts {
-		opt(&config)
-	}
-	return &CircuitBreaker[T]{
-		name:   name,
-		config: config,
-		state:  StateClosed,
+func New(cfg Config) *Breaker {
+	return &Breaker{
+<<<<<<<< HEAD:platform/resilience-service/internal/circuitbreaker/breaker.go
+		config:       cfg.Config,
+		serviceName:  cfg.ServiceName,
+		state:        domain.StateClosed,
+		lastChange:   time.Now(),
+		eventBuilder: cfg.EventBuilder,
+========
+		config:        cfg.Config,
+		serviceName:   cfg.ServiceName,
+		state:         resilience.StateClosed,
+		lastChange:    resilience.NowUTC(),
+		eventEmitter:  cfg.EventEmitter,
+		correlationFn: resilience.EnsureCorrelationFunc(cfg.CorrelationFn),
+>>>>>>>> e56c8d3e968a09fa21b79cf641348eeeb213fc78:libs/go/resilience/circuitbreaker/breaker.go
 	}
 }
 
 // Execute runs the operation with circuit breaker protection.
-func (cb *CircuitBreaker[T]) Execute(ctx context.Context, op func() (T, error)) (T, error) {
-	var zero T
-
-	if err := cb.beforeCall(); err != nil {
-		return zero, err
+func (b *Breaker) Execute(ctx context.Context, operation func() error) error {
+	if !b.allowRequest() {
+		return liberror.NewCircuitOpenError(b.serviceName)
 	}
 
-	result, err := op()
-
-	cb.afterCall(err == nil)
-
-	return result, err
-}
-
-// State returns the current circuit state.
-func (cb *CircuitBreaker[T]) State() State {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-	return cb.currentState()
-}
-
-// Reset forces the circuit to closed state.
-func (cb *CircuitBreaker[T]) Reset() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.state = StateClosed
-	cb.failures = 0
-	cb.successes = 0
-	cb.halfOpenCalls = 0
-}
-
-// Name returns the circuit breaker name.
-func (cb *CircuitBreaker[T]) Name() string {
-	return cb.name
-}
-
-// Metrics returns current metrics.
-func (cb *CircuitBreaker[T]) Metrics() Metrics {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-	return Metrics{
-		State:           cb.currentState(),
-		Failures:        cb.failures,
-		Successes:       cb.successes,
-		LastFailureTime: cb.lastFailureTime,
-	}
-}
-
-// Metrics holds circuit breaker metrics.
-type Metrics struct {
-	State           State
-	Failures        int
-	Successes       int
-	LastFailureTime time.Time
-}
-
-func (cb *CircuitBreaker[T]) beforeCall() error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-
-	state := cb.currentState()
-
-	switch state {
-	case StateOpen:
-		return ErrCircuitOpen
-	case StateHalfOpen:
-		if cb.halfOpenCalls >= cb.config.HalfOpenMaxCalls {
-			return ErrCircuitOpen
-		}
-		cb.halfOpenCalls++
+	err := operation()
+	if err != nil {
+		b.RecordFailure()
+		return err
 	}
 
+	b.RecordSuccess()
 	return nil
 }
 
-func (cb *CircuitBreaker[T]) afterCall(success bool) {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+// allowRequest checks if a request should be allowed.
+func (b *Breaker) allowRequest() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	state := cb.currentState()
+	switch b.state {
+	case resilience.StateClosed:
+		return true
 
-	if success {
-		cb.onSuccess(state)
-	} else {
-		cb.onFailure(state)
+	case resilience.StateOpen:
+		if time.Since(b.openedAt) >= b.config.Timeout {
+			b.transitionTo(resilience.StateHalfOpen)
+			return true
+		}
+		return false
+
+	case resilience.StateHalfOpen:
+		return true
+
+	default:
+		return false
 	}
 }
 
-func (cb *CircuitBreaker[T]) onSuccess(state State) {
-	switch state {
-	case StateClosed:
-		cb.failures = 0
-	case StateHalfOpen:
-		cb.successes++
-		if cb.successes >= cb.config.SuccessThreshold {
-			cb.state = StateClosed
-			cb.failures = 0
-			cb.successes = 0
-			cb.halfOpenCalls = 0
+// GetState returns current circuit state.
+func (b *Breaker) GetState() resilience.CircuitState {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.state
+}
+
+// GetFullState returns the complete circuit breaker state.
+func (b *Breaker) GetFullState() resilience.CircuitBreakerState {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return resilience.CircuitBreakerState{
+		ServiceName:     b.serviceName,
+		State:           b.state,
+		FailureCount:    b.failureCount,
+		SuccessCount:    b.successCount,
+		LastFailureTime: b.lastFailure,
+		LastStateChange: b.lastChange,
+		Version:         b.version,
+	}
+}
+
+// RecordSuccess records a successful operation.
+func (b *Breaker) RecordSuccess() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	switch b.state {
+	case resilience.StateClosed:
+		b.failureCount = 0
+
+	case resilience.StateHalfOpen:
+		b.successCount++
+		if b.successCount >= b.config.SuccessThreshold {
+			b.transitionTo(resilience.StateClosed)
 		}
 	}
 }
 
-func (cb *CircuitBreaker[T]) onFailure(state State) {
-	cb.lastFailureTime = time.Now()
+// RecordFailure records a failed operation.
+func (b *Breaker) RecordFailure() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	switch state {
-	case StateClosed:
-		cb.failures++
-		if cb.failures >= cb.config.FailureThreshold {
-			cb.state = StateOpen
+	now := resilience.NowUTC()
+	b.lastFailure = &now
+
+	switch b.state {
+	case resilience.StateClosed:
+		b.failureCount++
+		if b.failureCount >= b.config.FailureThreshold {
+			b.transitionTo(resilience.StateOpen)
 		}
-	case StateHalfOpen:
-		cb.state = StateOpen
-		cb.successes = 0
-		cb.halfOpenCalls = 0
+
+	case resilience.StateHalfOpen:
+		b.transitionTo(resilience.StateOpen)
 	}
 }
 
-func (cb *CircuitBreaker[T]) currentState() State {
-	if cb.state == StateOpen {
-		if time.Since(cb.lastFailureTime) >= cb.config.Timeout {
-			cb.state = StateHalfOpen
-			cb.halfOpenCalls = 0
-			cb.successes = 0
-		}
+// Reset forces circuit to closed state.
+func (b *Breaker) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.transitionTo(resilience.StateClosed)
+	b.failureCount = 0
+	b.successCount = 0
+}
+
+// transitionTo changes the circuit state. Must be called with lock held.
+func (b *Breaker) transitionTo(newState resilience.CircuitState) {
+	if b.state == newState {
+		return
 	}
-	return cb.state
+
+	prevState := b.state
+	b.state = newState
+	b.lastChange = resilience.NowUTC()
+	b.version++
+
+	if newState == resilience.StateOpen {
+		b.openedAt = resilience.NowUTC()
+	}
+
+	if newState == resilience.StateClosed {
+		b.failureCount = 0
+		b.successCount = 0
+	}
+
+	if newState == resilience.StateHalfOpen {
+		b.successCount = 0
+	}
+
+	b.emitStateChangeEvent(prevState, newState)
+}
+
+<<<<<<<< HEAD:platform/resilience-service/internal/circuitbreaker/breaker.go
+// emitStateChangeEvent emits a state change event using EventBuilder.
+func (b *Breaker) emitStateChangeEvent(prevState, newState domain.CircuitState) {
+	if b.eventBuilder == nil {
+		return
+	}
+
+	b.eventBuilder.Emit(domain.EventCircuitStateChange, map[string]any{
+		"previous_state": prevState.String(),
+		"new_state":      newState.String(),
+		"failure_count":  b.failureCount,
+		"success_count":  b.successCount,
+	})
+========
+// emitStateChangeEvent emits a state change event.
+func (b *Breaker) emitStateChangeEvent(prevState, newState resilience.CircuitState) {
+	event := resilience.Event{
+		ID:            resilience.GenerateEventID(),
+		Type:          resilience.EventCircuitStateChange,
+		ServiceName:   b.serviceName,
+		Timestamp:     resilience.NowUTC(),
+		CorrelationID: b.correlationFn(),
+		Metadata: map[string]any{
+			"previous_state": prevState.String(),
+			"new_state":      newState.String(),
+			"failure_count":  b.failureCount,
+			"success_count":  b.successCount,
+		},
+	}
+
+	resilience.EmitEvent(b.eventEmitter, event)
+>>>>>>>> e56c8d3e968a09fa21b79cf641348eeeb213fc78:libs/go/resilience/circuitbreaker/breaker.go
 }
