@@ -1,0 +1,17 @@
+spring:
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    com.authplatform.usersvc: INFO
+
+app:
+  platform:
+    crypto-service:
+      enabled: true
+    cache-service:
+      enabled: true
+    logging-service:
+      enabled: true

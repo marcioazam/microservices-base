@@ -1,0 +1,11 @@
+apiVersion: v2
+name: logging-service
+description: Centralized logging service for the microservices platform
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+dependencies:
+  - name: common
+    version: "1.x.x"
+    repository: "file://../common"
+    condition: common.enabled

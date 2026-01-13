@@ -1,0 +1,71 @@
+{
+  "version": 2,
+  "dgSpecHash": "18d0SZhaWMI=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\marcio\\source\\microservices-base\\services\\password-recovery\\src\\PasswordRecovery.Api\\PasswordRecovery.Api.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\marcio\\.nuget\\packages\\aspnetcore.healthchecks.npgsql\\9.0.0\\aspnetcore.healthchecks.npgsql.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\aspnetcore.healthchecks.rabbitmq\\9.0.0\\aspnetcore.healthchecks.rabbitmq.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\aspnetcore.healthchecks.redis\\9.0.0\\aspnetcore.healthchecks.redis.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\fluentvalidation\\11.11.0\\fluentvalidation.11.11.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\fluentvalidation.aspnetcore\\11.3.0\\fluentvalidation.aspnetcore.11.3.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\fluentvalidation.dependencyinjectionextensions\\11.5.1\\fluentvalidation.dependencyinjectionextensions.11.5.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\isopoh.cryptography.argon2\\2.0.0\\isopoh.cryptography.argon2.2.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\isopoh.cryptography.blake2b\\2.0.0\\isopoh.cryptography.blake2b.2.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\isopoh.cryptography.securearray\\2.0.0\\isopoh.cryptography.securearray.2.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.1\\microsoft.aspnetcore.openapi.10.0.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.entityframeworkcore\\9.0.1\\microsoft.entityframeworkcore.9.0.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.entityframeworkcore.abstractions\\9.0.1\\microsoft.entityframeworkcore.abstractions.9.0.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.entityframeworkcore.analyzers\\9.0.1\\microsoft.entityframeworkcore.analyzers.9.0.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.entityframeworkcore.relational\\9.0.1\\microsoft.entityframeworkcore.relational.9.0.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.extensions.dependencymodel\\9.0.0\\microsoft.extensions.dependencymodel.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\microsoft.openapi\\2.0.0\\microsoft.openapi.2.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\npgsql\\9.0.2\\npgsql.9.0.2.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\npgsql.entityframeworkcore.postgresql\\9.0.3\\npgsql.entityframeworkcore.postgresql.9.0.3.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry\\1.11.0\\opentelemetry.1.11.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry.api\\1.11.0\\opentelemetry.api.1.11.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry.api.providerbuilderextensions\\1.11.0\\opentelemetry.api.providerbuilderextensions.1.11.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry.exporter.prometheus.aspnetcore\\1.11.0-beta.1\\opentelemetry.exporter.prometheus.aspnetcore.1.11.0-beta.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry.extensions.hosting\\1.10.0\\opentelemetry.extensions.hosting.1.10.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry.instrumentation.aspnetcore\\1.10.1\\opentelemetry.instrumentation.aspnetcore.1.10.1.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\opentelemetry.instrumentation.http\\1.10.0\\opentelemetry.instrumentation.http.1.10.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\pipelines.sockets.unofficial\\2.2.8\\pipelines.sockets.unofficial.2.2.8.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\rabbitmq.client\\7.0.0\\rabbitmq.client.7.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog\\4.2.0\\serilog.4.2.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.aspnetcore\\9.0.0\\serilog.aspnetcore.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.extensions.hosting\\9.0.0\\serilog.extensions.hosting.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.extensions.logging\\9.0.0\\serilog.extensions.logging.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.formatting.compact\\3.0.0\\serilog.formatting.compact.3.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.settings.configuration\\9.0.0\\serilog.settings.configuration.9.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.sinks.console\\6.0.0\\serilog.sinks.console.6.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.sinks.debug\\3.0.0\\serilog.sinks.debug.3.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\serilog.sinks.file\\6.0.0\\serilog.sinks.file.6.0.0.nupkg.sha512",
+    "C:\\Users\\marcio\\.nuget\\packages\\stackexchange.redis\\2.8.24\\stackexchange.redis.2.8.24.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1603",
+      "level": "Warning",
+      "message": "PasswordRecovery.Api depends on OpenTelemetry.Exporter.Prometheus.AspNetCore (>= 1.10.0-rc.1) but OpenTelemetry.Exporter.Prometheus.AspNetCore 1.10.0-rc.1 was not found. OpenTelemetry.Exporter.Prometheus.AspNetCore 1.11.0-beta.1 was resolved instead.",
+      "projectPath": "C:\\Users\\marcio\\source\\microservices-base\\services\\password-recovery\\src\\PasswordRecovery.Api\\PasswordRecovery.Api.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\marcio\\source\\microservices-base\\services\\password-recovery\\src\\PasswordRecovery.Api\\PasswordRecovery.Api.csproj",
+      "libraryId": "OpenTelemetry.Exporter.Prometheus.AspNetCore",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "message": "Package 'OpenTelemetry.Api' 1.11.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-8785-wc3w-h8q6",
+      "projectPath": "C:\\Users\\marcio\\source\\microservices-base\\services\\password-recovery\\src\\PasswordRecovery.Api\\PasswordRecovery.Api.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\marcio\\source\\microservices-base\\services\\password-recovery\\src\\PasswordRecovery.Api\\PasswordRecovery.Api.csproj",
+      "libraryId": "OpenTelemetry.Api",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
+}

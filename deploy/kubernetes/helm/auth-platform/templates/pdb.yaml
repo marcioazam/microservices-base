@@ -1,0 +1,89 @@
+{{- if .Values.authEdgeService.enabled }}
+{{- if .Values.authEdgeService.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-auth-edge
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth-edge
+spec:
+  minAvailable: {{ .Values.authEdgeService.podDisruptionBudget.minAvailable | default 2 }}
+  selector:
+    matchLabels:
+      app: auth-edge-service
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.tokenService.enabled }}
+{{- if .Values.tokenService.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-token
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: token
+spec:
+  minAvailable: {{ .Values.tokenService.podDisruptionBudget.minAvailable | default 2 }}
+  selector:
+    matchLabels:
+      app: token-service
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.sessionIdentityCore.enabled }}
+{{- if .Values.sessionIdentityCore.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-session
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: session
+spec:
+  minAvailable: {{ .Values.sessionIdentityCore.podDisruptionBudget.minAvailable | default 2 }}
+  selector:
+    matchLabels:
+      app: session-identity-core
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.iamPolicyService.enabled }}
+{{- if .Values.iamPolicyService.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-iam
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iam
+spec:
+  minAvailable: {{ .Values.iamPolicyService.podDisruptionBudget.minAvailable | default 2 }}
+  selector:
+    matchLabels:
+      app: iam-policy-service
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.mfaService.enabled }}
+{{- if .Values.mfaService.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-mfa
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mfa
+spec:
+  minAvailable: {{ .Values.mfaService.podDisruptionBudget.minAvailable | default 2 }}
+  selector:
+    matchLabels:
+      app: mfa-service
+      {{- include "auth-platform.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}

@@ -1,6 +1,11 @@
 //! Pact Provider Verification Tests for Token Service
 //! **Feature: auth-platform-2025-enhancements**
 //! Requirements: 5.2 - Provider verification against consumer contracts
+//!
+//! NOTE: These tests require the `pact` feature and external Pact Broker.
+//! Run with: cargo test --features pact
+
+#![cfg(feature = "pact")]
 
 use pact_verifier::*;
 use std::env;

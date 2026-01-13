@@ -1,0 +1,37 @@
+# buf.yaml - Buf configuration for Auth Platform API
+# https://buf.build/docs/configuration/v2/buf-yaml
+version: v2
+
+name: buf.build/auth-platform/api
+
+modules:
+  - path: proto
+
+deps:
+  # Protovalidate for semantic validation
+  - buf.build/bufbuild/protovalidate:v0.13.0
+  # Google APIs for HTTP annotations and common types
+  - buf.build/googleapis/googleapis
+  # gRPC Gateway for REST support
+  - buf.build/grpc-ecosystem/grpc-gateway:v2.25.1
+
+lint:
+  use:
+    - STANDARD
+    - COMMENTS
+  except:
+    - PACKAGE_VERSION_SUFFIX
+  disallow_comment_ignores: true
+  enum_zero_value_suffix: _UNSPECIFIED
+  rpc_allow_same_request_response: false
+  rpc_allow_google_protobuf_empty_requests: true
+  rpc_allow_google_protobuf_empty_responses: false
+  service_suffix: Service
+
+breaking:
+  use:
+    - FILE
+    - PACKAGE
+  except:
+    - EXTENSION_NO_DELETE
+    - FIELD_SAME_DEFAULT

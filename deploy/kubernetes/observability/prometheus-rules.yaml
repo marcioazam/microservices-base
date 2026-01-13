@@ -1,0 +1,124 @@
+# Prometheus Alerting Rules for SLO Violations
+# Requirements 8.5
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: observability
+data:
+  slo-rules.yaml: |
+    groups:
+      - name: auth-platform-slo
+        interval: 30s
+        rules:
+          # SLO: 99.9% availability
+          - alert: AuthPlatformAvailabilitySLOBreach
+            expr: |
+              (
+                sum(rate(http_requests_total{job=~"auth-.*", code!~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job=~"auth-.*"}[5m]))
+              ) < 0.999
+            for: 5m
+            labels:
+              severity: critical
+              slo: availability
+            annotations:
+              summary: "Auth Platform availability below 99.9% SLO"
+              description: "Current availability: {{ $value | humanizePercentage }}"
+              runbook_url: "https://docs.auth-platform.io/runbooks/availability"
+
+          # SLO: P99 latency < 500ms
+          - alert: AuthPlatformLatencySLOBreach
+            expr: |
+              histogram_quantile(0.99, 
+                sum(rate(http_request_duration_seconds_bucket{job=~"auth-.*"}[5m])) by (le)
+              ) > 0.5
+            for: 5m
+            labels:
+              severity: warning
+              slo: latency
+            annotations:
+              summary: "Auth Platform P99 latency exceeds 500ms SLO"
+              description: "Current P99 latency: {{ $value | humanizeDuration }}"
+
+          # SLO: Error rate < 0.1%
+          - alert: AuthPlatformErrorRateSLOBreach
+            expr: |
+              (
+                sum(rate(http_requests_total{job=~"auth-.*", code=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job=~"auth-.*"}[5m]))
+              ) > 0.001
+            for: 5m
+            labels:
+              severity: warning
+              slo: error_rate
+            annotations:
+              summary: "Auth Platform error rate exceeds 0.1% SLO"
+              description: "Current error rate: {{ $value | humanizePercentage }}"
+
+      - name: auth-platform-alerts
+        rules:
+          # High CPU usage
+          - alert: AuthServiceHighCPU
+            expr: |
+              (
+                sum(rate(container_cpu_usage_seconds_total{namespace="auth-system"}[5m])) by (pod)
+                /
+                sum(kube_pod_container_resource_limits{namespace="auth-system", resource="cpu"}) by (pod)
+              ) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Auth service {{ $labels.pod }} CPU usage > 90%"
+
+          # High memory usage
+          - alert: AuthServiceHighMemory
+            expr: |
+              (
+                sum(container_memory_working_set_bytes{namespace="auth-system"}) by (pod)
+                /
+                sum(kube_pod_container_resource_limits{namespace="auth-system", resource="memory"}) by (pod)
+              ) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Auth service {{ $labels.pod }} memory usage > 90%"
+
+          # Pod restart rate
+          - alert: AuthServiceHighRestartRate
+            expr: |
+              increase(kube_pod_container_status_restarts_total{namespace="auth-system"}[1h]) > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Auth service {{ $labels.pod }} restarting frequently"
+
+          # Token service specific
+          - alert: TokenServiceHighLatency
+            expr: |
+              histogram_quantile(0.95, 
+                sum(rate(grpc_server_handling_seconds_bucket{grpc_service="auth.token.TokenService"}[5m])) by (le)
+              ) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+              service: token-service
+            annotations:
+              summary: "Token service P95 latency > 100ms"
+
+          # MFA service timeout
+          - alert: MFAServiceTimeout
+            expr: |
+              sum(rate(grpc_server_handled_total{grpc_service="auth.mfa.MFAService", grpc_code="DeadlineExceeded"}[5m])) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+              service: mfa-service
+            annotations:
+              summary: "MFA service experiencing timeouts"

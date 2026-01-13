@@ -1,9 +1,9 @@
 //! Graceful Shutdown Module
 //!
 //! Provides structured concurrency with JoinSet and signal handling.
+//! Includes cleanup for LoggingClient and CacheClient.
 
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +11,8 @@ use tokio::signal;
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinSet;
 use tracing::{info, warn, error};
+
+use crate::observability::AuthEdgeLogger;
 
 /// Shutdown coordinator for graceful termination
 pub struct ShutdownCoordinator {
@@ -20,6 +22,8 @@ pub struct ShutdownCoordinator {
     completion_tx: watch::Sender<bool>,
     /// JoinSet for tracking background tasks
     tasks: JoinSet<()>,
+    /// Optional logger for cleanup
+    logger: Option<Arc<AuthEdgeLogger>>,
 }
 
 impl ShutdownCoordinator {
@@ -32,7 +36,14 @@ impl ShutdownCoordinator {
             shutdown_tx,
             completion_tx,
             tasks: JoinSet::new(),
+            logger: None,
         }
+    }
+
+    /// Sets the logger for cleanup during shutdown
+    pub fn with_logger(mut self, logger: Arc<AuthEdgeLogger>) -> Self {
+        self.logger = Some(logger);
+        self
     }
 
     /// Gets a shutdown receiver
@@ -61,12 +72,18 @@ impl ShutdownCoordinator {
         });
     }
 
-    /// Initiates graceful shutdown
+    /// Initiates graceful shutdown with resource cleanup
     pub async fn shutdown(mut self, timeout: Duration) {
         info!("Initiating graceful shutdown");
         
         // Send shutdown signal
         let _ = self.shutdown_tx.send(());
+        
+        // Flush logger buffer before shutdown
+        if let Some(logger) = &self.logger {
+            info!("Flushing logger buffer");
+            logger.flush().await;
+        }
         
         // Wait for tasks with timeout
         let shutdown_result = tokio::time::timeout(timeout, async {
@@ -154,7 +171,7 @@ pub async fn wait_for_signal() {
 /// Runs a server with graceful shutdown support
 pub async fn run_with_graceful_shutdown<F, S>(
     server_future: F,
-    mut shutdown_coordinator: ShutdownCoordinator,
+    shutdown_coordinator: ShutdownCoordinator,
     shutdown_timeout: Duration,
 ) where
     F: Future<Output = Result<(), S>> + Send,

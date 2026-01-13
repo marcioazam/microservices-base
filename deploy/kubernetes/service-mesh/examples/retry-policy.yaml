@@ -1,0 +1,15 @@
+# Example: Retry Policy
+# Retries up to 3 times on 5xx errors with 5s timeout per attempt
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: api-retry
+  namespace: default
+spec:
+  targetRef:
+    name: api-service
+  retry:
+    enabled: true
+    maxAttempts: 3
+    retryableStatusCodes: "5xx,429"
+    retryTimeout: "5s"

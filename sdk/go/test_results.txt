@@ -1,0 +1,216 @@
+﻿?   	github.com/auth-platform/sdk-go/examples/client_credentials	[no test files]
+?   	github.com/auth-platform/sdk-go/examples/dpop	[no test files]
+?   	github.com/auth-platform/sdk-go/examples/grpc_interceptor	[no test files]
+?   	github.com/auth-platform/sdk-go/examples/http_middleware	[no test files]
+?   	github.com/auth-platform/sdk-go/examples/pkce	[no test files]
+?   	github.com/auth-platform/sdk-go/src	[no test files]
+?   	github.com/auth-platform/sdk-go/src/auth	[no test files]
+?   	github.com/auth-platform/sdk-go/src/client	[no test files]
+?   	github.com/auth-platform/sdk-go/src/errors	[no test files]
+ok  	github.com/auth-platform/sdk-go/src/internal/observability	3.165s
+?   	github.com/auth-platform/sdk-go/src/middleware	[no test files]
+?   	github.com/auth-platform/sdk-go/src/retry	[no test files]
+?   	github.com/auth-platform/sdk-go/src/token	[no test files]
+?   	github.com/auth-platform/sdk-go/src/types	[no test files]
+ok  	github.com/auth-platform/sdk-go/tests/auth	16.165s
+panic: test timed out after 10m0s
+	running tests:
+		TestNew_ValidConfig (10m0s)
+
+goroutine 1833 [running]:
+testing.(*M).startAlarm.func1()
+	C:/Program Files/Go/src/testing/testing.go:2682 +0x345
+created by time.goFunc
+	C:/Program Files/Go/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive, 8 minutes]:
+testing.(*T).Run(0xc000272000, {0x7ff65e041f2c?, 0x7ffd4a9f3fb0?}, 0x7ff65e079ae0)
+	C:/Program Files/Go/src/testing/testing.go:2005 +0x469
+testing.runTests.func1(0xc000272000)
+	C:/Program Files/Go/src/testing/testing.go:2477 +0x37
+testing.tRunner(0xc000272000, 0xc0001e1c70)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+testing.runTests(0xc0001830e0, {0x7ff65e6890c0, 0x1c, 0x1c}, {0x7?, 0xc00018f500?, 0x7ff65e695760?})
+	C:/Program Files/Go/src/testing/testing.go:2475 +0x4b4
+testing.(*M).Run(0xc00026c780)
+	C:/Program Files/Go/src/testing/testing.go:2337 +0x63a
+main.main()
+	_testmain.go:99 +0x9b
+
+goroutine 18 [select, 8 minutes]:
+github.com/lestrrat-go/httprc/v3.(*ResourceBase[...]).Ready(0x64, {0x7ff65e152d30?, 0xc00019a870})
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/resource.go:93 +0x6a
+github.com/lestrrat-go/httprc/v3.(*controller).Add(0xc00018f580, {0x7ff65e152d30, 0xc00019a870}, {0x7ff65e15a880, 0xc00013a240}, {0xc000048690, 0x1, 0xc00019a8c0?})
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/controller.go:150 +0x4ef
+github.com/lestrrat-go/jwx/v3/jwk.(*Cache).Register(0xc000048670, {0x7ff65e152d30, 0xc00019a870}, {0xc0001b1bc0, 0x2e}, {0x0, 0x0, 0x7ff65d81376a?})
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/jwx/v3@v3.0.12/jwk/cache.go:161 +0x5da
+github.com/auth-platform/sdk-go/src/token.NewJWKSCacheWithConfig({{0xc0001b1bc0?, 0x7ff65e0476d7?}, 0xc00027bd90?})
+	C:/Users/marcio/source/microservices-base/sdk/go/src/token/jwks.go:62 +0xb0
+github.com/auth-platform/sdk-go/src/token.NewJWKSCache(...)
+	C:/Users/marcio/source/microservices-base/sdk/go/src/token/jwks.go:49
+github.com/auth-platform/sdk-go/src/client.newClient(0xc00024eba0)
+	C:/Users/marcio/source/microservices-base/sdk/go/src/client/client.go:63 +0x76
+github.com/auth-platform/sdk-go/src/client.New({0xc00027bf48?, 0x7ff65e61b7e0?, 0xc00026e1f0?})
+	C:/Users/marcio/source/microservices-base/sdk/go/src/client/client.go:35 +0x105
+github.com/auth-platform/sdk-go/tests/client.TestNew_ValidConfig(0xc0002721c0)
+	C:/Users/marcio/source/microservices-base/sdk/go/tests/client/client_test.go:11 +0xa5
+testing.tRunner(0xc0002721c0, 0x7ff65e079ae0)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1997 +0x44b
+
+goroutine 19 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff65e14aae0, 0x7ff65e694a80}, 0xc00025acb0, 0xc00025ad20, 0xc00025ad90, {0x7ff65e14c5c0, 0x7ff65e6de180}, {0x7ff65e14aac0, 0x7ff65e6de180}}, {0x7ff65e152d30, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 20 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff65e14aae0, 0x7ff65e694a80}, 0xc00025acb0, 0xc00025ad20, 0xc00025ad90, {0x7ff65e14c5c0, 0x7ff65e6de180}, {0x7ff65e14aac0, 0x7ff65e6de180}}, {0x7ff65e152d30, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 21 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff65e14aae0, 0x7ff65e694a80}, 0xc00025acb0, 0xc00025ad20, 0xc00025ad90, {0x7ff65e14c5c0, 0x7ff65e6de180}, {0x7ff65e14aac0, 0x7ff65e6de180}}, {0x7ff65e152d30, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 22 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff65e14aae0, 0x7ff65e694a80}, 0xc00025acb0, 0xc00025ad20, 0xc00025ad90, {0x7ff65e14c5c0, 0x7ff65e6de180}, {0x7ff65e14aac0, 0x7ff65e6de180}}, {0x7ff65e152d30, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 23 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff65e14aae0, 0x7ff65e694a80}, 0xc00025acb0, 0xc00025ad20, 0xc00025ad90, {0x7ff65e14c5c0, 0x7ff65e6de180}, {0x7ff65e14aac0, 0x7ff65e6de180}}, {0x7ff65e152d30, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 24 [select]:
+github.com/lestrrat-go/httprc/v3.(*ctrlBackend).loop(0xc00019a910, {0x7ff65e152d30, 0xc00019a8c0}, 0xc00026e210, 0xc00026e200)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/backend.go:164 +0x25b
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:173 +0x738
+
+goroutine 25 [sync.WaitGroup.Wait, 8 minutes]:
+sync.runtime_SemacquireWaitGroup(0x0?, 0x0?)
+	C:/Program Files/Go/src/runtime/sema.go:114 +0x2e
+sync.(*WaitGroup).Wait(0xc00026e200)
+	C:/Program Files/Go/src/sync/waitgroup.go:206 +0x85
+github.com/lestrrat-go/httprc/v3.(*Client).Start.func2(...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:176
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 18
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:175 +0x7b1
+FAIL	github.com/auth-platform/sdk-go/tests/client	600.485s
+ok  	github.com/auth-platform/sdk-go/tests/errors	1.821s
+panic: test timed out after 10m0s
+	running tests:
+		TestConfigValidation (10m0s)
+		TestConfigValidation/valid_config (10m0s)
+
+goroutine 1863 [running]:
+testing.(*M).startAlarm.func1()
+	C:/Program Files/Go/src/testing/testing.go:2682 +0x345
+created by time.goFunc
+	C:/Program Files/Go/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive, 7 minutes]:
+testing.(*T).Run(0xc00022e000, {0x7ff7b9b222dc?, 0x7ffd4a9f3fb0?}, 0x7ff7b9b580b8)
+	C:/Program Files/Go/src/testing/testing.go:2005 +0x469
+testing.runTests.func1(0xc00022e000)
+	C:/Program Files/Go/src/testing/testing.go:2477 +0x37
+testing.tRunner(0xc00022e000, 0xc0001e1c70)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+testing.runTests(0xc000180e70, {0x7ff7ba16d880, 0x7, 0x7}, {0x7?, 0xc000192fc0?, 0x7ff7ba17bf60?})
+	C:/Program Files/Go/src/testing/testing.go:2475 +0x4b4
+testing.(*M).Run(0xc0002283c0)
+	C:/Program Files/Go/src/testing/testing.go:2337 +0x63a
+main.main()
+	_testmain.go:57 +0x9b
+
+goroutine 9 [chan receive, 7 minutes]:
+testing.(*T).Run(0xc000003880, {0x7ff7b9b1ad3d?, 0x7ff7b9c8dcab?}, 0xc000052600)
+	C:/Program Files/Go/src/testing/testing.go:2005 +0x469
+github.com/auth-platform/sdk-go/tests/integration_test.TestConfigValidation(0xc000003880)
+	C:/Users/marcio/source/microservices-base/sdk/go/tests/integration/client_integration_test.go:146 +0x2f9
+testing.tRunner(0xc000003880, 0x7ff7b9b580b8)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1997 +0x44b
+
+goroutine 11 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff7b9c2c460, 0x7ff7ba17b280}, 0xc000163030, 0xc0001630a0, 0xc000163110, {0x7ff7b9c2e360, 0x7ff7ba1c48e0}, {0x7ff7b9c2c440, 0x7ff7ba1c48e0}}, {0x7ff7b9c343e0, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 12 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff7b9c2c460, 0x7ff7ba17b280}, 0xc000163030, 0xc0001630a0, 0xc000163110, {0x7ff7b9c2e360, 0x7ff7ba1c48e0}, {0x7ff7b9c2c440, 0x7ff7ba1c48e0}}, {0x7ff7b9c343e0, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 10 [select, 7 minutes]:
+github.com/lestrrat-go/httprc/v3.(*ResourceBase[...]).Ready(0x64, {0x7ff7b9c343e0?, 0xc000146550})
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/resource.go:93 +0x6a
+github.com/lestrrat-go/httprc/v3.(*controller).Add(0xc000052640, {0x7ff7b9c343e0, 0xc000146550}, {0x7ff7b9c3bda0, 0xc00013c510}, {0xc000048a30, 0x1, 0xc0001465a0?})
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/controller.go:150 +0x4ef
+github.com/lestrrat-go/jwx/v3/jwk.(*Cache).Register(0xc000048a10, {0x7ff7b9c343e0, 0xc000146550}, {0xc00002e810, 0x2e}, {0x0, 0x0, 0x7ff7b92e37aa?})
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/jwx/v3@v3.0.12/jwk/cache.go:161 +0x5da
+github.com/auth-platform/sdk-go/src/token.NewJWKSCacheWithConfig({{0xc00002e810?, 0x7ff7b9b267a2?}, 0xc00008fde0?})
+	C:/Users/marcio/source/microservices-base/sdk/go/src/token/jwks.go:62 +0xb0
+github.com/auth-platform/sdk-go/src/token.NewJWKSCache(...)
+	C:/Users/marcio/source/microservices-base/sdk/go/src/token/jwks.go:49
+github.com/auth-platform/sdk-go/src/client.newClient(0xc0001324e0)
+	C:/Users/marcio/source/microservices-base/sdk/go/src/client/client.go:63 +0x76
+github.com/auth-platform/sdk-go/src/client.New({0xc0000087b0?, 0x7ff7ba17d6a0?, 0xc00008ff30?})
+	C:/Users/marcio/source/microservices-base/sdk/go/src/client/client.go:35 +0x105
+github.com/auth-platform/sdk-go/tests/integration_test.TestConfigValidation.func1(0xc000003a40)
+	C:/Users/marcio/source/microservices-base/sdk/go/tests/integration/client_integration_test.go:147 +0x2d
+testing.tRunner(0xc000003a40, 0xc000052600)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 9
+	C:/Program Files/Go/src/testing/testing.go:1997 +0x44b
+
+goroutine 13 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff7b9c2c460, 0x7ff7ba17b280}, 0xc000163030, 0xc0001630a0, 0xc000163110, {0x7ff7b9c2e360, 0x7ff7ba1c48e0}, {0x7ff7b9c2c440, 0x7ff7ba1c48e0}}, {0x7ff7b9c343e0, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 14 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff7b9c2c460, 0x7ff7ba17b280}, 0xc000163030, 0xc0001630a0, 0xc000163110, {0x7ff7b9c2e360, 0x7ff7ba1c48e0}, {0x7ff7b9c2c440, 0x7ff7ba1c48e0}}, {0x7ff7b9c343e0, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 15 [select]:
+github.com/lestrrat-go/httprc/v3.worker.Run({{0x7ff7b9c2c460, 0x7ff7ba17b280}, 0xc000163030, 0xc0001630a0, 0xc000163110, {0x7ff7b9c2e360, 0x7ff7ba1c48e0}, {0x7ff7b9c2c440, 0x7ff7ba1c48e0}}, {0x7ff7b9c343e0, ...}, ...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/worker.go:27 +0x273
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:147 +0x31e
+
+goroutine 16 [select]:
+github.com/lestrrat-go/httprc/v3.(*ctrlBackend).loop(0xc0001465f0, {0x7ff7b9c343e0, 0xc0001465a0}, 0xc00000a5d0, 0xc00000a5c0)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/backend.go:164 +0x25b
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:173 +0x738
+
+goroutine 66 [sync.WaitGroup.Wait, 7 minutes]:
+sync.runtime_SemacquireWaitGroup(0x0?, 0x0?)
+	C:/Program Files/Go/src/runtime/sema.go:114 +0x2e
+sync.(*WaitGroup).Wait(0xc00000a5c0)
+	C:/Program Files/Go/src/sync/waitgroup.go:206 +0x85
+github.com/lestrrat-go/httprc/v3.(*Client).Start.func2(...)
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:176
+created by github.com/lestrrat-go/httprc/v3.(*Client).Start in goroutine 10
+	C:/Users/marcio/go/pkg/mod/github.com/lestrrat-go/httprc/v3@v3.0.1/client.go:175 +0x7b1
+FAIL	github.com/auth-platform/sdk-go/tests/integration	600.503s
+ok  	github.com/auth-platform/sdk-go/tests/middleware	0.487s
+ok  	github.com/auth-platform/sdk-go/tests/retry	1.522s
+ok  	github.com/auth-platform/sdk-go/tests/token	1.364s
+ok  	github.com/auth-platform/sdk-go/tests/types	1.183s
+FAIL

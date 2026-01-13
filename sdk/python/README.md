@@ -293,6 +293,188 @@ except AuthPlatformError as e:
 | DPoP | DPOP_6xxx | DPOP_REQUIRED, DPOP_INVALID, DPOP_NONCE_REQUIRED |
 | PKCE | PKCE_7xxx | PKCE_REQUIRED, PKCE_INVALID |
 
+## Core Components (December 2025 State of Art)
+
+The SDK provides centralized core components that eliminate code duplication between sync and async clients:
+
+```python
+from auth_platform_sdk import (
+    # Error handling
+    ErrorFactory,
+    # JWKS caching
+    JWKSCacheBase,
+    # Token operations
+    TokenOperations,
+    TokenValidator,
+    # Authorization
+    AuthorizationBuilder,
+    # HTTP execution
+    SyncHTTPExecutor,
+    AsyncHTTPExecutor,
+)
+```
+
+### ErrorFactory
+
+Centralized error creation with consistent structure, correlation IDs, and HTTP response transformation:
+
+```python
+from auth_platform_sdk import ErrorFactory
+import httpx
+
+# Transform HTTP response to SDK error
+response = httpx.Response(429, headers={"Retry-After": "60"})
+error = ErrorFactory.from_http_response(response, correlation_id="req-123")
+# Returns RateLimitError with retry_after=60
+
+# Transform exceptions
+try:
+    # ... network operation
+except httpx.TimeoutException as e:
+    error = ErrorFactory.from_exception(e, correlation_id="req-456")
+    # Returns TimeoutError with correlation ID
+
+# Create token validation errors with metadata
+error = ErrorFactory.token_validation_error(
+    "Invalid signature",
+    token_metadata={"kid": "key-1", "alg": "ES256"},
+)
+```
+
+### JWKSCacheBase
+
+Base class with shared TTL and refresh-ahead logic for JWKS caching:
+
+```python
+from auth_platform_sdk import JWKSCacheBase
+
+cache = JWKSCacheBase(
+    jwks_uri="https://auth.example.com/.well-known/jwks.json",
+    ttl_seconds=3600,
+    refresh_ahead_seconds=300,
+)
+
+# Check cache status
+if cache.should_refresh():
+    # Time to refresh (within refresh-ahead window)
+    pass
+
+if cache.is_expired():
+    # Cache is fully expired
+    pass
+
+# Timing information
+print(f"Refresh in: {cache.time_until_refresh()}s")
+print(f"Expires in: {cache.time_until_expiry()}s")
+
+# Key lookup
+key = cache.get_key("key-id-123")
+signing_keys = cache.get_signing_keys()
+```
+
+### TokenValidator
+
+Centralized JWT validation shared by sync and async clients:
+
+```python
+from auth_platform_sdk import TokenValidator, AuthPlatformConfig
+from auth_platform_sdk.models import JWK
+
+config = AuthPlatformConfig(
+    base_url="https://auth.example.com",
+    client_id="your-client-id",
+)
+validator = TokenValidator(config)
+
+# Validate token with JWK
+claims = validator.validate(
+    token,
+    jwk,
+    issuer="https://auth.example.com",
+)
+
+# Extract key ID from token header
+kid = validator.get_key_id(token)
+
+# Verify DPoP binding
+is_bound = validator.verify_dpop_binding(claims, expected_thumbprint)
+```
+
+### AuthorizationBuilder
+
+Centralized authorization URL construction with PKCE support:
+
+```python
+from auth_platform_sdk import AuthorizationBuilder, AuthPlatformConfig
+
+config = AuthPlatformConfig(
+    base_url="https://auth.example.com",
+    client_id="your-client-id",
+)
+builder = AuthorizationBuilder(config)
+
+# Build authorization URL with PKCE
+url, state, pkce = builder.build_authorization_url(
+    redirect_uri="https://app.example.com/callback",
+    scopes=["openid", "profile"],
+    use_pkce=True,
+)
+
+# Parse callback URL
+code, error = builder.parse_callback_url(callback_url, expected_state=state)
+```
+
+### TokenOperations
+
+Centralized token request building and processing:
+
+```python
+from auth_platform_sdk import TokenOperations, AuthPlatformConfig
+
+config = AuthPlatformConfig(
+    base_url="https://auth.example.com",
+    client_id="your-client-id",
+    client_secret="your-secret",
+)
+ops = TokenOperations(config)
+
+# Build request payloads
+cc_request = ops.build_client_credentials_request(scopes=["read", "write"])
+refresh_request = ops.build_refresh_token_request(refresh_token)
+auth_code_request = ops.build_authorization_code_request(
+    code="auth-code",
+    redirect_uri="https://app.example.com/callback",
+    code_verifier="pkce-verifier",
+)
+
+# Build headers with DPoP support
+headers = ops.build_token_request_headers()
+```
+
+### HTTP Executors
+
+Centralized HTTP execution with retry and circuit breaker:
+
+```python
+from auth_platform_sdk import SyncHTTPExecutor, AsyncHTTPExecutor
+from auth_platform_sdk.config import RetryConfig
+from auth_platform_sdk.http import CircuitBreaker
+import httpx
+
+# Sync executor
+client = httpx.Client()
+retry_config = RetryConfig(max_retries=3, initial_delay=1.0)
+executor = SyncHTTPExecutor(client, retry_config)
+
+response = executor.execute("POST", "https://api.example.com/token", data=payload)
+
+# Async executor
+async_client = httpx.AsyncClient()
+async_executor = AsyncHTTPExecutor(async_client, retry_config)
+
+response = await async_executor.execute("GET", "https://api.example.com/resource")
+```
+
 ## API Reference
 
 ### AuthPlatformClient
@@ -306,6 +488,18 @@ except AuthPlatformError as e:
 ### AsyncAuthPlatformClient
 
 Same methods as `AuthPlatformClient`, but async.
+
+### Core Components
+
+| Component | Description |
+|-----------|-------------|
+| `ErrorFactory` | Centralized error creation with correlation IDs |
+| `JWKSCacheBase` | Base JWKS cache with TTL and refresh-ahead logic |
+| `TokenValidator` | Centralized JWT validation |
+| `AuthorizationBuilder` | Authorization URL construction with PKCE |
+| `TokenOperations` | Token request building and processing |
+| `SyncHTTPExecutor` | Sync HTTP with retry and circuit breaker |
+| `AsyncHTTPExecutor` | Async HTTP with retry and circuit breaker |
 
 ## License
 

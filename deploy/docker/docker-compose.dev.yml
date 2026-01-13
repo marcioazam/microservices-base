@@ -1,0 +1,159 @@
+# Development Environment Overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# December 2025 Best Practices
+
+services:
+  # ============================================
+  # Platform Services - Development Overrides
+  # ============================================
+  
+  logging-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+      LOG_LEVEL: debug
+    volumes:
+      - ../../platform/logging-service:/src:ro
+    ports:
+      - "5000:8080"
+      - "5001:8081"
+      - "5002:5002"  # Debug port
+
+  logging-worker:
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      LOG_LEVEL: debug
+    volumes:
+      - ../../platform/logging-service:/src:ro
+
+  resilience-service:
+    environment:
+      RESILIENCE_LOGGING_LEVEL: debug
+      RESILIENCE_OPENTELEMETRY_ENVIRONMENT: development
+    ports:
+      - "50056:50056"
+      - "50057:50057"  # Debug port
+
+  cache-service:
+    environment:
+      LOG_LEVEL: debug
+      DEBUG_MODE: "true"
+    ports:
+      - "8085:8080"
+      - "9095:9090"
+      - "2345:2345"  # Delve debug port
+
+  # ============================================
+  # Auth Services - Development Overrides
+  # ============================================
+  
+  auth-edge-service:
+    environment:
+      LOG_LEVEL: debug
+      DEBUG_MODE: "true"
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+      - "2346:2345"  # Delve debug port
+
+  token-service:
+    environment:
+      LOG_LEVEL: debug
+      DEBUG_MODE: "true"
+    ports:
+      - "8081:8081"
+      - "9091:9091"
+      - "2347:2345"  # Delve debug port
+
+  session-identity-core:
+    environment:
+      LOG_LEVEL: debug
+      MIX_ENV: dev
+      PHX_SERVER: "true"
+    ports:
+      - "4000:4000"
+      - "8082:8082"
+      - "9092:9092"
+      - "4001:4001"  # LiveDashboard
+
+  iam-policy-service:
+    environment:
+      LOG_LEVEL: debug
+      DEBUG_MODE: "true"
+    ports:
+      - "8083:8083"
+      - "9093:9093"
+      - "2348:2345"  # Delve debug port
+
+  mfa-service:
+    environment:
+      LOG_LEVEL: debug
+      MIX_ENV: dev
+    ports:
+      - "8084:8084"
+      - "9094:9094"
+      - "4002:4001"  # LiveDashboard
+
+  # ============================================
+  # Infrastructure - Development Overrides
+  # ============================================
+  
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+  redis:
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --loglevel verbose
+
+  elasticsearch:
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"  # Prometheus metrics
+
+  # ============================================
+  # Observability - Development Overrides
+  # ============================================
+  
+  otel-collector:
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+      - "13133:13133"
+      - "55679:55679"  # zpages
+
+  prometheus:
+    ports:
+      - "9099:9090"
+
+  grafana:
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+
+  jaeger:
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+
+  kibana:
+    ports:
+      - "5601:5601"

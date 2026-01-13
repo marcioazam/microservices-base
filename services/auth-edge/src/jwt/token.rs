@@ -205,10 +205,10 @@ impl Token<SignatureValidated> {
             }
         }
 
-        // Validate required claims
+        // Validate required claims using centralized Claims::has_claim
         let missing: Vec<String> = required_claims
             .iter()
-            .filter(|claim| !self.has_claim(claims, claim))
+            .filter(|claim| !claims.has_claim(claim))
             .map(|s| s.to_string())
             .collect();
 
@@ -223,20 +223,6 @@ impl Token<SignatureValidated> {
             kid: self.kid,
             _state: PhantomData,
         })
-    }
-
-    fn has_claim(&self, claims: &Claims, claim_name: &str) -> bool {
-        match claim_name {
-            "iss" => !claims.iss.is_empty(),
-            "sub" => !claims.sub.is_empty(),
-            "aud" => !claims.aud.is_empty(),
-            "exp" => true,
-            "iat" => true,
-            "jti" => !claims.jti.is_empty(),
-            "session_id" => claims.session_id.is_some(),
-            "scopes" => claims.scopes.is_some(),
-            _ => claims.custom.contains_key(claim_name),
-        }
     }
 
     /// Get read-only access to claims (signature validated but not fully validated)

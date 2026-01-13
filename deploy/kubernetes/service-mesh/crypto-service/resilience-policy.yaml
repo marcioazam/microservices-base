@@ -1,0 +1,143 @@
+# ResiliencePolicy for crypto-service
+# Provides circuit breaker, retry, and timeout configuration via Linkerd
+# Requirements: 3.3, 3.4
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: crypto-service-resilience
+  namespace: crypto
+  labels:
+    app.kubernetes.io/name: crypto-service
+    app.kubernetes.io/component: resilience
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  targetRef:
+    apiVersion: v1
+    kind: Service
+    name: crypto-service
+  
+  # Circuit Breaker Configuration
+  # Isolates failures to prevent cascade
+  circuitBreaker:
+    enabled: true
+    # Number of consecutive failures before opening circuit
+    failureThreshold: 5
+    # Time window for counting failures (seconds)
+    failureWindow: 60
+    # Time to wait before attempting recovery (seconds)
+    recoveryTimeout: 30
+    # Minimum requests before circuit breaker activates
+    minRequests: 10
+  
+  # Retry Configuration
+  # Automatic retries for transient failures
+  retry:
+    enabled: true
+    # Maximum retry attempts
+    maxAttempts: 3
+    # Initial backoff duration
+    initialBackoff: "100ms"
+    # Maximum backoff duration
+    maxBackoff: "1s"
+    # Backoff multiplier
+    backoffMultiplier: 2
+    # HTTP status codes that trigger retry
+    retryableStatusCodes: "5xx,429"
+    # Only retry idempotent methods
+    retryOn: "connect-failure,retriable-4xx,retriable-status-codes"
+  
+  # Timeout Configuration
+  # Prevents hanging requests
+  timeout:
+    enabled: true
+    # Request timeout (time to first byte)
+    requestTimeout: "30s"
+    # Response timeout (total time including body)
+    responseTimeout: "60s"
+    # Idle timeout for keep-alive connections
+    idleTimeout: "300s"
+  
+  # Health Check Configuration
+  healthCheck:
+    # Path for liveness probe
+    livenessPath: /health/live
+    # Path for readiness probe
+    readinessPath: /health/ready
+    # Interval between health checks
+    interval: "10s"
+    # Timeout for health check response
+    timeout: "5s"
+    # Failures before marking unhealthy
+    unhealthyThreshold: 3
+    # Successes before marking healthy
+    healthyThreshold: 1
+
+---
+# ServiceProfile for crypto-service routes
+# Enables per-route retry and timeout configuration
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: crypto-service.crypto.svc.cluster.local
+  namespace: crypto
+spec:
+  routes:
+    # Encryption endpoints - longer timeout for large payloads
+    - name: POST /v1/encrypt
+      condition:
+        method: POST
+        pathRegex: /v1/encrypt
+      timeout: 60s
+      isRetryable: false  # Encryption is not idempotent
+    
+    - name: POST /v1/decrypt
+      condition:
+        method: POST
+        pathRegex: /v1/decrypt
+      timeout: 60s
+      isRetryable: false  # Decryption is not idempotent
+    
+    # Signature endpoints
+    - name: POST /v1/sign
+      condition:
+        method: POST
+        pathRegex: /v1/sign
+      timeout: 30s
+      isRetryable: false
+    
+    - name: POST /v1/verify
+      condition:
+        method: POST
+        pathRegex: /v1/verify
+      timeout: 30s
+      isRetryable: true  # Verification is idempotent
+    
+    # Key management endpoints
+    - name: POST /v1/keys
+      condition:
+        method: POST
+        pathRegex: /v1/keys
+      timeout: 10s
+      isRetryable: false  # Key generation is not idempotent
+    
+    - name: GET /v1/keys/{id}
+      condition:
+        method: GET
+        pathRegex: /v1/keys/[^/]+
+      timeout: 5s
+      isRetryable: true
+    
+    - name: DELETE /v1/keys/{id}
+      condition:
+        method: DELETE
+        pathRegex: /v1/keys/[^/]+
+      timeout: 5s
+      isRetryable: false
+    
+    # Health endpoints - fast timeout
+    - name: GET /health/*
+      condition:
+        method: GET
+        pathRegex: /health/.*
+      timeout: 2s
+      isRetryable: true

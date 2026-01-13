@@ -1,0 +1,109 @@
+# Default values for resilience-operator
+replicaCount: 2
+
+image:
+  repository: ghcr.io/auth-platform/resilience-operator
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to Chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "resilience-operator"
+
+podAnnotations:
+  linkerd.io/inject: enabled
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - resilience-operator
+          topologyKey: kubernetes.io/hostname
+
+# Leader election configuration
+leaderElection:
+  enabled: true
+  leaseDuration: 15s
+  renewDeadline: 10s
+  retryPeriod: 2s
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
+# Health probes
+healthProbes:
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8081
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8081
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# CRD installation
+crds:
+  install: true
+  keep: true
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Namespace to watch (empty = all namespaces)
+watchNamespace: ""
+
+# Log level (debug, info, warn, error)
+logLevel: info
+
+# Reconciliation settings
+reconciliation:
+  requeueAfter: 30s
+  maxConcurrentReconciles: 10

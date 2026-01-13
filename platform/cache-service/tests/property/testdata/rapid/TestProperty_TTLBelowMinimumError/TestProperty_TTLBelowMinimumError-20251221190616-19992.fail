@@ -1,0 +1,16 @@
+# 2025/12/21 19:06:16.782470 [TestProperty_TTLBelowMinimumError] [rapid] draw minSeconds: 13
+# 2025/12/21 19:06:16.782470 [TestProperty_TTLBelowMinimumError] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/ttl_properties_test.go:94
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/ttl_properties_test.go:80
+# 	Error:      	An error is expected but got nil.
+# 	Test:       	TestProperty_TTLBelowMinimumError
+# 	Messages:   	TTL below minimum should return error
+# 
+v0.4.8#679286470999769247
+0x106cb21d7369bd
+0x663ed1c67cd48
+0x3

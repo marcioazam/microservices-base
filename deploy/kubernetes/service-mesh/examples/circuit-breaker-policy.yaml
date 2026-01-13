@@ -1,0 +1,14 @@
+# Example: Circuit Breaker Policy
+# Opens circuit after 5 consecutive failures
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: api-circuit-breaker
+  namespace: default
+spec:
+  targetRef:
+    name: api-service
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    failureAccrualMethod: consecutive

@@ -1,5 +1,6 @@
 # IAM/Policy Service - Go Multi-Stage Build
 # OPA integration for RBAC/ABAC policy evaluation
+# Build context: repository root (../../)
 
 # ============================================
 # Stage 1: Build Environment
@@ -16,14 +17,14 @@ RUN apk add --no-cache \
 WORKDIR /build
 
 # Copy go mod files for dependency caching
-COPY auth/iam-policy-service/go.mod auth/iam-policy-service/go.sum ./
-COPY proto/ ../proto/
+COPY services/iam-policy/go.mod services/iam-policy/go.sum ./
+COPY api/proto/ ../proto/
 
 # Download dependencies
 RUN go mod download && go mod verify
 
 # Copy source code
-COPY auth/iam-policy-service/ ./
+COPY services/iam-policy/ ./
 
 # Build with optimizations
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
@@ -47,7 +48,7 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Copy OPA policies
-COPY auth/iam-policy-service/policies /app/policies
+COPY services/iam-policy/policies /app/policies
 
 WORKDIR /app
 EXPOSE 8083 9093

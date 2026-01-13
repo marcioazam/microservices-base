@@ -1,0 +1,48 @@
+# Example: Namespace with Linkerd Injection
+# All pods in this namespace will have Linkerd sidecar injected
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meshed-services
+  annotations:
+    linkerd.io/inject: enabled
+  labels:
+    linkerd.io/inject: enabled
+---
+# Example: Service in meshed namespace
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: meshed-services
+spec:
+  selector:
+    app: api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# Example: Deployment with explicit injection
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-deployment
+  namespace: meshed-services
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      annotations:
+        linkerd.io/inject: enabled
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: api-service:latest
+          ports:
+            - containerPort: 8080

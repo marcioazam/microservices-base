@@ -29,27 +29,27 @@ import (
     "context"
     "log"
 
-    authplatform "github.com/auth-platform/sdk-go"
+    "github.com/auth-platform/sdk-go/src/client"
 )
 
 func main() {
-    client, err := authplatform.New(authplatform.Config{
-        BaseURL:      "https://auth.example.com",
-        ClientID:     "your-client-id",
-        ClientSecret: "your-client-secret",
-    })
+    c, err := client.New(
+        client.WithBaseURL("https://auth.example.com"),
+        client.WithClientID("your-client-id"),
+        client.WithClientSecret("your-client-secret"),
+    )
     if err != nil {
         log.Fatal(err)
     }
-    defer client.Close()
+    defer c.Close()
 
-    // Client credentials flow
-    tokens, err := client.ClientCredentials(context.Background())
+    // Validate a token
+    claims, err := c.ValidateTokenCtx(context.Background(), accessToken)
     if err != nil {
         log.Fatal(err)
     }
 
-    log.Printf("Access token: %s", tokens.AccessToken)
+    log.Printf("User: %s", claims.Subject)
 }
 ```
 
@@ -84,34 +84,39 @@ export AUTH_PLATFORM_DPOP_KEY_PATH=/path/to/dpop-key.pem
 | `AUTH_PLATFORM_DPOP_KEY_PATH` | No | - | Path to DPoP private key |
 
 ```go
-config := authplatform.LoadFromEnv()
-client, err := authplatform.New(*config)
+c, err := client.NewFromEnv()
+// Or with additional overrides:
+c, err := client.NewFromEnv(
+    client.WithTimeout(45*time.Second),
+)
 ```
 
 ### Functional Options
 
 ```go
-client, err := authplatform.New(
-    authplatform.Config{
-        BaseURL:  "https://auth.example.com",
-        ClientID: "your-client-id",
-    },
-    authplatform.WithTimeout(10*time.Second),
-    authplatform.WithJWKSCacheTTL(30*time.Minute),
-    authplatform.WithHTTPClient(customHTTPClient),
-    authplatform.WithRetryPolicy(authplatform.NewRetryPolicy(
-        authplatform.WithMaxRetries(5),
-        authplatform.WithBaseDelay(time.Second),
-    )),
+import "github.com/auth-platform/sdk-go/src/client"
+
+c, err := client.New(
+    client.WithBaseURL("https://auth.example.com"),
+    client.WithClientID("your-client-id"),
+    client.WithClientSecret("your-client-secret"),
+    client.WithTimeout(10*time.Second),
+    client.WithJWKSCacheTTL(30*time.Minute),
+    client.WithMaxRetries(5),
+    client.WithBaseDelay(time.Second),
+    client.WithMaxDelay(30*time.Second),
+    client.WithDPoP(true),
 )
 ```
 
 ## Token Validation
 
+### Basic Validation
+
 ```go
-claims, err := client.ValidateToken(ctx, accessToken)
+claims, err := c.ValidateTokenCtx(ctx, accessToken)
 if err != nil {
-    if authplatform.IsValidation(err) {
+    if errors.IsValidation(err) {
         // Invalid token
     }
     log.Fatal(err)
@@ -121,6 +126,38 @@ log.Printf("User: %s", claims.Subject)
 log.Printf("Issuer: %s", claims.Issuer)
 ```
 
+### Validation with Options
+
+For more granular control, use `ValidateTokenWithOpts`:
+
+```go
+import (
+    "github.com/auth-platform/sdk-go/src/client"
+    "github.com/auth-platform/sdk-go/src/token"
+)
+
+opts := token.ValidationOptions{
+    Audience:       "https://api.example.com",
+    Issuer:         "https://auth.example.com",
+    RequiredClaims: []string{"email", "roles"},
+    SkipExpiry:     false, // Set true to skip expiration check
+}
+
+claims, err := c.ValidateTokenWithOpts(ctx, accessToken, opts)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### ValidationOptions Reference
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `Audience` | `string` | Expected token audience (aud claim) |
+| `Issuer` | `string` | Expected token issuer (iss claim) |
+| `RequiredClaims` | `[]string` | Claims that must be present in the token |
+| `SkipExpiry` | `bool` | Skip expiration validation (use with caution) |
+
 ## HTTP Middleware
 
 ### Basic Usage
@@ -128,22 +165,27 @@ log.Printf("Issuer: %s", claims.Issuer)
 ```go
 import (
     "net/http"
-    authplatform "github.com/auth-platform/sdk-go"
+    "github.com/auth-platform/sdk-go/src/client"
+    "github.com/auth-platform/sdk-go/src/middleware"
 )
 
 func main() {
-    client, _ := authplatform.New(config)
+    c, _ := client.New(
+        client.WithBaseURL("https://auth.example.com"),
+        client.WithClientID("your-client-id"),
+    )
+    defer c.Close()
 
     // Wrap handlers with authentication
     mux := http.NewServeMux()
     mux.HandleFunc("/public", publicHandler)
-    mux.Handle("/protected", client.Middleware()(http.HandlerFunc(protectedHandler)))
+    mux.Handle("/protected", c.HTTPMiddleware()(http.HandlerFunc(protectedHandler)))
 
     http.ListenAndServe(":8080", mux)
 }
 
 func protectedHandler(w http.ResponseWriter, r *http.Request) {
-    claims, ok := authplatform.GetClaimsFromContext(r.Context())
+    claims, ok := middleware.GetClaimsFromContext(r.Context())
     if !ok {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
@@ -158,47 +200,39 @@ func protectedHandler(w http.ResponseWriter, r *http.Request) {
 The middleware supports functional options for advanced configuration:
 
 ```go
+import "github.com/auth-platform/sdk-go/src/middleware"
+
 // Skip authentication for certain paths
-middleware := client.Middleware(
-    authplatform.WithSkipPatterns("/health", "/metrics", "^/public/.*"),
+mw := c.HTTPMiddleware(
+    middleware.WithSkipPatterns("/health", "/metrics", "^/public/.*"),
 )
 
 // Custom error handling
-middleware := client.Middleware(
-    authplatform.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
+mw := c.HTTPMiddleware(
+    middleware.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(http.StatusUnauthorized)
         json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
     }),
 )
 
-// Token extraction from cookies
-middleware := client.Middleware(
-    authplatform.WithCookieExtraction("access_token"),
-)
-
-// Custom token extractor
-middleware := client.Middleware(
-    authplatform.WithTokenExtractor(customExtractor),
-)
-
 // Validate audience and issuer
-middleware := client.Middleware(
-    authplatform.WithAudience("https://api.example.com"),
-    authplatform.WithIssuer("https://auth.example.com"),
+mw := c.HTTPMiddleware(
+    middleware.WithAudience("https://api.example.com"),
+    middleware.WithIssuer("https://auth.example.com"),
 )
 
 // Require specific claims
-middleware := client.Middleware(
-    authplatform.WithRequiredClaims("email", "roles"),
+mw := c.HTTPMiddleware(
+    middleware.WithRequiredClaims("email", "roles"),
 )
 
 // Combine multiple options
-middleware := client.Middleware(
-    authplatform.WithSkipPatterns("/health", "/public/.*"),
-    authplatform.WithAudience("https://api.example.com"),
-    authplatform.WithRequiredClaims("email"),
-    authplatform.WithErrorHandler(customErrorHandler),
+mw := c.HTTPMiddleware(
+    middleware.WithSkipPatterns("/health", "/public/.*"),
+    middleware.WithAudience("https://api.example.com"),
+    middleware.WithRequiredClaims("email"),
+    middleware.WithErrorHandler(customErrorHandler),
 )
 ```
 
@@ -221,15 +255,20 @@ middleware := client.Middleware(
 ```go
 import (
     "google.golang.org/grpc"
-    authplatform "github.com/auth-platform/sdk-go"
+    "github.com/auth-platform/sdk-go/src/client"
+    "github.com/auth-platform/sdk-go/src/middleware"
 )
 
 func main() {
-    client, _ := authplatform.New(config)
+    c, _ := client.New(
+        client.WithBaseURL("https://auth.example.com"),
+        client.WithClientID("your-client-id"),
+    )
+    defer c.Close()
 
     server := grpc.NewServer(
-        grpc.UnaryInterceptor(client.UnaryServerInterceptor()),
-        grpc.StreamInterceptor(client.StreamServerInterceptor()),
+        grpc.UnaryInterceptor(middleware.UnaryServerInterceptor(c)),
+        grpc.StreamInterceptor(middleware.StreamServerInterceptor(c)),
     )
 
     // Register services...
@@ -241,8 +280,8 @@ func main() {
 ```go
 conn, err := grpc.Dial(
     "localhost:50051",
-    grpc.WithUnaryInterceptor(client.UnaryClientInterceptor()),
-    grpc.WithStreamInterceptor(client.StreamClientInterceptor()),
+    grpc.WithUnaryInterceptor(middleware.UnaryClientInterceptor(c)),
+    grpc.WithStreamInterceptor(middleware.StreamClientInterceptor(c)),
 )
 ```
 
@@ -251,11 +290,11 @@ conn, err := grpc.Dial(
 ```go
 // Skip authentication for specific methods
 server := grpc.NewServer(
-    grpc.UnaryInterceptor(client.UnaryServerInterceptor(
-        authplatform.WithGRPCSkipMethods("/grpc.health.v1.Health/Check", "/api.Service/PublicMethod"),
-        authplatform.WithGRPCAudience("https://api.example.com"),
-        authplatform.WithGRPCIssuer("https://auth.example.com"),
-        authplatform.WithGRPCRequiredClaims("email", "roles"),
+    grpc.UnaryInterceptor(middleware.UnaryServerInterceptor(c,
+        middleware.WithGRPCSkipMethods("/grpc.health.v1.Health/Check", "/api.Service/PublicMethod"),
+        middleware.WithGRPCAudience("https://api.example.com"),
+        middleware.WithGRPCIssuer("https://auth.example.com"),
+        middleware.WithGRPCRequiredClaims("email", "roles"),
     )),
 )
 ```
@@ -265,7 +304,7 @@ server := grpc.NewServer(
 ```go
 // ShouldSkipMethod checks if a gRPC method should skip authentication.
 // Useful for custom interceptor logic or testing.
-skip := authplatform.ShouldSkipMethod("/api.Service/Health", []string{"/Health", "/Ping"})
+skip := middleware.ShouldSkipMethod("/api.Service/Health", []string{"/Health", "/Ping"})
 ```
 
 ## PKCE Support
@@ -273,27 +312,19 @@ skip := authplatform.ShouldSkipMethod("/api.Service/Health", []string{"/Health",
 PKCE (Proof Key for Code Exchange) prevents authorization code interception attacks.
 
 ```go
+import "github.com/auth-platform/sdk-go/src/auth"
+
 // Generate PKCE pair
-pkce, err := authplatform.GeneratePKCE()
+pkce, err := auth.GeneratePKCE()
 if err != nil {
     log.Fatal(err)
 }
 
-// Build authorization URL with PKCE
-authURL, err := client.BuildAuthorizationURL(authplatform.AuthorizationRequest{
-    RedirectURI:         "https://app.example.com/callback",
-    Scope:               "openid profile email",
-    State:               state,
-    CodeChallenge:       pkce.Challenge,
-    CodeChallengeMethod: pkce.Method, // "S256"
-})
+// Use pkce.Verifier and pkce.Challenge in your OAuth flow
+// pkce.Method is "S256"
 
-// Exchange code with verifier
-tokens, err := client.ExchangeCode(ctx, authplatform.TokenExchangeRequest{
-    Code:         authorizationCode,
-    RedirectURI:  "https://app.example.com/callback",
-    CodeVerifier: pkce.Verifier,
-})
+// Verify PKCE (server-side)
+valid := auth.VerifyPKCE(verifier, challenge)
 ```
 
 ## DPoP Support
@@ -301,25 +332,28 @@ tokens, err := client.ExchangeCode(ctx, authplatform.TokenExchangeRequest{
 DPoP (Demonstrating Proof of Possession) binds tokens to a specific client key pair.
 
 ```go
-// Enable DPoP via config
-client, err := authplatform.New(authplatform.Config{
-    BaseURL:      "https://auth.example.com",
-    ClientID:     "your-client-id",
-    ClientSecret: "your-client-secret",
-    DPoPEnabled:  true, // Auto-generates ES256 key pair
-})
-
-// Or provide custom DPoP prover
-keyPair, _ := authplatform.GenerateES256KeyPair()
-prover := authplatform.NewDPoPProver(keyPair)
-
-client, err := authplatform.New(config,
-    authplatform.WithDPoPProver(prover),
+import (
+    "github.com/auth-platform/sdk-go/src/client"
+    "github.com/auth-platform/sdk-go/src/auth"
 )
 
-// DPoP proofs are automatically added to token requests
-tokens, err := client.ClientCredentials(ctx)
-// tokens.TokenType will be "DPoP"
+// Enable DPoP via config option
+c, err := client.New(
+    client.WithBaseURL("https://auth.example.com"),
+    client.WithClientID("your-client-id"),
+    client.WithClientSecret("your-client-secret"),
+    client.WithDPoP(true), // Auto-generates ES256 key pair
+)
+
+// Access the DPoP prover
+prover := c.DPoPProver()
+
+// Or create a custom DPoP prover
+keyPair, _ := auth.GenerateES256KeyPair()
+prover := auth.NewDPoPProver(keyPair)
+
+// Generate a DPoP proof
+proof, err := prover.GenerateProof(ctx, "POST", "https://auth.example.com/token", "")
 ```
 
 ## Retry Policy
@@ -327,15 +361,22 @@ tokens, err := client.ClientCredentials(ctx)
 Automatic retry with exponential backoff for transient failures.
 
 ```go
-policy := authplatform.NewRetryPolicy(
-    authplatform.WithMaxRetries(5),
-    authplatform.WithBaseDelay(100*time.Millisecond),
-    authplatform.WithMaxDelay(10*time.Second),
-    authplatform.WithJitter(0.2),
+import "github.com/auth-platform/sdk-go/src/retry"
+
+policy := retry.NewPolicy(
+    retry.WithMaxRetries(5),
+    retry.WithBaseDelay(100*time.Millisecond),
+    retry.WithMaxDelay(10*time.Second),
+    retry.WithJitter(0.2),
 )
 
-client, err := authplatform.New(config,
-    authplatform.WithRetryPolicy(policy),
+// Use with client configuration
+c, err := client.New(
+    client.WithBaseURL("https://auth.example.com"),
+    client.WithClientID("your-client-id"),
+    client.WithMaxRetries(5),
+    client.WithBaseDelay(100*time.Millisecond),
+    client.WithMaxDelay(10*time.Second),
 )
 ```
 
@@ -347,64 +388,173 @@ Retryable conditions:
 
 ## Error Handling
 
+The SDK uses a unified `SDKError` type with error codes for programmatic handling:
+
 ```go
 import (
     "errors"
-    authplatform "github.com/auth-platform/sdk-go"
+    sdkerrors "github.com/auth-platform/sdk-go/src/errors"
 )
 
-token, err := client.GetAccessToken(ctx)
+claims, err := c.ValidateTokenCtx(ctx, token)
 if err != nil {
     switch {
-    case authplatform.IsTokenExpired(err):
+    case sdkerrors.IsTokenExpired(err):
         // Re-authenticate
-    case authplatform.IsRateLimited(err):
+    case sdkerrors.IsRateLimited(err):
         // Wait and retry
-    case authplatform.IsNetwork(err):
+    case sdkerrors.IsNetwork(err):
         // Network issue
     default:
         log.Fatal(err)
     }
 }
 
-// Error wrapping works correctly
-if errors.Is(err, authplatform.ErrTokenExpired) {
-    // Handle expired token
+// Extract error code programmatically
+if code := sdkerrors.GetCode(err); code != "" {
+    // Handle based on error code
+}
+
+// Error wrapping and unwrapping works correctly
+var sdkErr *sdkerrors.SDKError
+if errors.As(err, &sdkErr) {
+    log.Printf("Error code: %s, message: %s", sdkErr.Code, sdkErr.Message)
 }
 ```
 
-## Sentinel Errors
+## Error Codes
 
-| Error | Description |
-|-------|-------------|
-| `ErrInvalidConfig` | Invalid client configuration |
-| `ErrTokenExpired` | Access token has expired |
-| `ErrTokenRefresh` | Token refresh failed |
-| `ErrNetwork` | Network error occurred |
-| `ErrRateLimited` | Rate limit exceeded |
-| `ErrValidation` | Token validation failed |
-| `ErrUnauthorized` | Request unauthorized |
-| `ErrDPoPRequired` | DPoP proof required |
-| `ErrDPoPInvalid` | DPoP proof invalid |
-| `ErrPKCEInvalid` | PKCE parameters invalid |
+| Error Code | Helper Function | Description |
+|------------|-----------------|-------------|
+| `INVALID_CONFIG` | `IsInvalidConfig(err)` | Invalid client configuration |
+| `TOKEN_EXPIRED` | `IsTokenExpired(err)` | Access token has expired |
+| `TOKEN_INVALID` | `IsTokenInvalid(err)` | Token is malformed or invalid |
+| `TOKEN_MISSING` | `IsTokenMissing(err)` | No token provided in request |
+| `TOKEN_REFRESH_FAILED` | - | Token refresh failed |
+| `NETWORK_ERROR` | `IsNetwork(err)` | Network error occurred |
+| `RATE_LIMITED` | `IsRateLimited(err)` | Rate limit exceeded |
+| `VALIDATION_FAILED` | `IsValidation(err)` | Token validation failed |
+| `UNAUTHORIZED` | `IsUnauthorized(err)` | Request unauthorized |
+| `DPOP_REQUIRED` | `IsDPoPRequired(err)` | DPoP proof required |
+| `DPOP_INVALID` | `IsDPoPInvalid(err)` | DPoP proof invalid |
+| `PKCE_INVALID` | `IsPKCEInvalid(err)` | PKCE parameters invalid |
+
+### gRPC Error Mapping
+
+SDK errors are automatically mapped to appropriate gRPC status codes in interceptors:
+
+```go
+import "github.com/auth-platform/sdk-go/src/middleware"
+
+// Convert SDK error to gRPC status error
+grpcErr := middleware.MapToGRPCError(err)
+```
+
+| SDK Error Code | gRPC Status Code |
+|----------------|------------------|
+| `INVALID_CONFIG` | `InvalidArgument` |
+| `TOKEN_EXPIRED` | `Unauthenticated` |
+| `TOKEN_INVALID` | `Unauthenticated` |
+| `TOKEN_MISSING` | `Unauthenticated` |
+| `TOKEN_REFRESH_FAILED` | `Unauthenticated` |
+| `NETWORK_ERROR` | `Unavailable` |
+| `RATE_LIMITED` | `ResourceExhausted` |
+| `VALIDATION_FAILED` | `InvalidArgument` |
+| `UNAUTHORIZED` | `PermissionDenied` |
+| `DPOP_REQUIRED` | `Unauthenticated` |
+| `DPOP_INVALID` | `Unauthenticated` |
+| `PKCE_INVALID` | `InvalidArgument` |
+
+### Error Sanitization
+
+The SDK automatically sanitizes error messages to prevent sensitive data leakage:
+
+```go
+import sdkerrors "github.com/auth-platform/sdk-go/src/errors"
+
+// Sensitive patterns (tokens, secrets, JWTs) are automatically redacted
+sanitizedErr := sdkerrors.SanitizeError(err)
+```
+
+## Unified Package Exports
+
+The SDK is organized into focused sub-packages:
+
+```go
+import (
+    "github.com/auth-platform/sdk-go/src/client"     // Client creation and configuration
+    "github.com/auth-platform/sdk-go/src/errors"     // Error types and helpers
+    "github.com/auth-platform/sdk-go/src/auth"       // PKCE and DPoP
+    "github.com/auth-platform/sdk-go/src/token"      // Token extraction and validation
+    "github.com/auth-platform/sdk-go/src/middleware" // HTTP/gRPC middleware
+    "github.com/auth-platform/sdk-go/src/retry"      // Retry policies
+    "github.com/auth-platform/sdk-go/src/types"      // Result, Option, Claims
+)
+
+// Client creation
+c, err := client.New(
+    client.WithBaseURL("https://auth.example.com"),
+    client.WithClientID("your-client-id"),
+)
+
+// Error handling
+if errors.IsTokenExpired(err) { /* ... */ }
+
+// Result/Option types
+result := types.Ok(42)
+opt := types.Some("value")
+
+// PKCE
+pkce, _ := auth.GeneratePKCE()
+auth.VerifyPKCE(pkce.Verifier, pkce.Challenge)
+
+// DPoP
+keyPair, _ := auth.GenerateES256KeyPair()
+prover := auth.NewDPoPProver(keyPair)
+
+// Token extraction
+extractor := token.NewHTTPExtractor(req)
+tok, scheme, _ := extractor.Extract(ctx)
+
+// Middleware context helpers
+claims, ok := middleware.GetClaimsFromContext(ctx)
+subject := middleware.GetSubject(ctx)
+```
 
 ## API Reference
+
+### Client Creation
+
+| Function | Description |
+|----------|-------------|
+| `client.New(opts...)` | Create new client with functional options |
+| `client.NewFromEnv(opts...)` | Create client from environment variables |
+| `client.NewFromConfig(config)` | Create client from config struct |
 
 ### Client Methods
 
 | Method | Description |
 |--------|-------------|
-| `New(config, opts...)` | Create new client |
-| `ClientCredentials(ctx)` | Obtain token via client credentials |
-| `ValidateToken(ctx, token)` | Validate JWT and return claims |
-| `GetAccessToken(ctx)` | Get valid access token |
-| `BuildAuthorizationURL(req)` | Build OAuth authorization URL |
-| `ExchangeCode(ctx, req)` | Exchange authorization code for tokens |
-| `RefreshToken(ctx, req)` | Refresh access token |
-| `Middleware(opts...)` | HTTP middleware with options |
-| `UnaryServerInterceptor()` | gRPC unary server interceptor |
-| `StreamServerInterceptor()` | gRPC stream server interceptor |
+| `ValidateTokenCtx(ctx, token)` | Validate JWT with context and return claims |
+| `ValidateTokenWithOpts(ctx, token, opts)` | Validate JWT with custom options |
+| `HTTPMiddleware(opts...)` | HTTP middleware with options |
+| `Config()` | Get client configuration |
+| `DPoPProver()` | Get DPoP prover if enabled |
 | `Close()` | Release resources |
+
+### Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| `WithBaseURL(url)` | Set auth platform base URL |
+| `WithClientID(id)` | Set OAuth client ID |
+| `WithClientSecret(secret)` | Set OAuth client secret |
+| `WithTimeout(duration)` | Set HTTP request timeout |
+| `WithJWKSCacheTTL(duration)` | Set JWKS cache TTL |
+| `WithMaxRetries(n)` | Set maximum retry attempts |
+| `WithBaseDelay(duration)` | Set initial retry delay |
+| `WithMaxDelay(duration)` | Set maximum retry delay |
+| `WithDPoP(enabled)` | Enable/disable DPoP |
 
 ### PKCE Functions
 
@@ -422,16 +572,45 @@ if errors.Is(err, authplatform.ErrTokenExpired) {
 | `GenerateES256KeyPair()` | Generate ES256 key pair |
 | `GenerateRS256KeyPair()` | Generate RS256 key pair |
 | `NewDPoPProver(keyPair)` | Create DPoP prover |
+| `ComputeATH(token)` | Compute access token hash |
 | `VerifyATH(token, ath)` | Verify access token hash |
+| `ComputeJWKThumbprint(key)` | Compute JWK thumbprint |
+
+### Context Helpers
+
+| Function | Description |
+|----------|-------------|
+| `GetClaimsFromContext(ctx)` | Extract claims from context |
+| `GetTokenFromContext(ctx)` | Extract raw token from context |
+| `GetSubject(ctx)` | Get subject claim from context |
+| `GetClientID(ctx)` | Get client ID from context |
+| `HasScope(ctx, scope)` | Check if context has scope |
+| `RequireScope(ctx, scope)` | Require specific scope |
+| `RequireAnyScope(ctx, scopes...)` | Require any of the scopes |
+| `RequireAllScopes(ctx, scopes...)` | Require all scopes |
+
+### Token Extraction
+
+| Function | Description |
+|----------|-------------|
+| `NewHTTPExtractor(req)` | Create HTTP header extractor |
+| `NewGRPCExtractor()` | Create gRPC metadata extractor |
+| `NewCookieExtractor(req, name, scheme)` | Create cookie extractor |
+| `NewChainedExtractor(extractors...)` | Chain multiple extractors |
+| `ExtractBearerToken(req)` | Extract Bearer token from request |
+| `ExtractDPoPToken(req)` | Extract DPoP token from request |
 
 ## Migration from v1
 
 Key changes in v2:
+- **Unified imports**: All common types and functions available from `github.com/auth-platform/sdk-go/src`
 - `Option` renamed to `ClientOption` to avoid conflict with generic `Option[T]`
 - DPoP support added via `WithDPoPProver` option
 - Retry policy configurable via `WithRetryPolicy` option
 - Observability via `WithTracer` and `WithLogger` options
 - PKCE helpers added: `GeneratePKCE()`, `VerifyPKCE()`
+- Result/Option generic types for functional error handling
+- Context helpers exported from main package
 
 ## License
 

@@ -1,0 +1,54 @@
+# ResiliencePolicy for Logging Service
+# Provides circuit breaker, retry, and timeout for inter-service communication
+# Note: Logging is fire-and-forget - callers should NOT block on logging failures
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: logging-service-resilience
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: logging-service
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  targetRef:
+    name: logging-service
+    port: 5001  # gRPC port
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 10  # Higher threshold - logging failures shouldn't cascade
+    failureAccrualMethod: consecutive
+  retry:
+    enabled: false  # Logging should be fire-and-forget, no retries
+  timeout:
+    enabled: true
+    requestTimeout: "2s"  # Fast timeout - don't block callers
+    responseTimeout: "1s"
+---
+# HTTP API ResiliencePolicy (for REST clients and health checks)
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: logging-service-http-resilience
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: logging-service
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  targetRef:
+    name: logging-service
+    port: 5000  # HTTP port
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 10
+    failureAccrualMethod: consecutive
+  retry:
+    enabled: true
+    maxAttempts: 2
+    retryableStatusCodes: "503,504"
+    retryTimeout: "1s"
+  timeout:
+    enabled: true
+    requestTimeout: "5s"
+    responseTimeout: "3s"

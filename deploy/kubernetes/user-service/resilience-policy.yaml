@@ -1,0 +1,25 @@
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: user-service-resilience
+  namespace: auth-platform
+spec:
+  targetRef:
+    name: user-service
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    successThreshold: 2
+    halfOpenRequests: 3
+  retry:
+    enabled: true
+    maxAttempts: 3
+    retryableStatusCodes: "5xx,429"
+    backoff:
+      initialInterval: "100ms"
+      maxInterval: "1s"
+      multiplier: 2
+  timeout:
+    enabled: true
+    requestTimeout: "30s"
+    responseTimeout: "60s"

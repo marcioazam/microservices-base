@@ -1,0 +1,63 @@
+{
+    "name": "auth-platform/email-service",
+    "description": "Email Microservice for Auth Platform",
+    "type": "project",
+    "license": "proprietary",
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "require": {
+        "php": "^8.3",
+        "symfony/mailer": "^7.2",
+        "symfony/mime": "^7.2",
+        "symfony/uid": "^7.2",
+        "symfony/validator": "^7.2",
+        "symfony/http-foundation": "^7.2",
+        "symfony/routing": "^7.2",
+        "twig/twig": "^3.14",
+        "php-amqplib/php-amqplib": "^3.7",
+        "doctrine/dbal": "^4.2",
+        "psr/log": "^3.0",
+        "monolog/monolog": "^3.8",
+        "aws/aws-sdk-php": "^3.330",
+        "mailgun/mailgun-php": "^4.3",
+        "sendgrid/sendgrid": "^8.2",
+        "guzzlehttp/guzzle": "^7.9",
+        "grpc/grpc": "^1.65",
+        "google/protobuf": "^4.29",
+        "open-telemetry/sdk": "^1.1",
+        "open-telemetry/exporter-otlp": "^1.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5",
+        "giorgiosironi/eris": "^1.0",
+        "mockery/mockery": "^1.6",
+        "phpstan/phpstan": "^2.1",
+        "squizlabs/php_codesniffer": "^3.11"
+    },
+    "autoload": {
+        "psr-4": {
+            "EmailService\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "EmailService\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-html coverage",
+        "test:property": "phpunit --testsuite Property",
+        "test:unit": "phpunit --testsuite Unit",
+        "test:integration": "phpunit --testsuite Integration",
+        "phpstan": "phpstan analyse src tests --level=8",
+        "cs": "phpcs --standard=PSR12 src tests",
+        "cs:fix": "phpcbf --standard=PSR12 src tests"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}

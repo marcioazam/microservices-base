@@ -1,0 +1,179 @@
+# Linkerd Service Mesh Integration
+# Namespace and service annotations for mTLS and traffic management
+
+---
+# Namespace configuration for Linkerd injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: auth-system
+  annotations:
+    linkerd.io/inject: enabled
+    config.linkerd.io/proxy-log-level: warn
+    config.linkerd.io/proxy-cpu-request: 100m
+    config.linkerd.io/proxy-memory-request: 64Mi
+    config.linkerd.io/proxy-cpu-limit: 500m
+    config.linkerd.io/proxy-memory-limit: 256Mi
+  labels:
+    linkerd.io/is-control-plane: "false"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+# Server authorization policy - default deny
+apiVersion: policy.linkerd.io/v1beta2
+kind: Server
+metadata:
+  name: auth-edge-server
+  namespace: auth-system
+spec:
+  podSelector:
+    matchLabels:
+      app: auth-edge-service
+  port: 8080
+  proxyProtocol: gRPC
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: Server
+metadata:
+  name: token-service-server
+  namespace: auth-system
+spec:
+  podSelector:
+    matchLabels:
+      app: token-service
+  port: 8081
+  proxyProtocol: gRPC
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: Server
+metadata:
+  name: session-identity-server
+  namespace: auth-system
+spec:
+  podSelector:
+    matchLabels:
+      app: session-identity-core
+  port: 8082
+  proxyProtocol: gRPC
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: Server
+metadata:
+  name: iam-policy-server
+  namespace: auth-system
+spec:
+  podSelector:
+    matchLabels:
+      app: iam-policy-service
+  port: 8083
+  proxyProtocol: gRPC
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: Server
+metadata:
+  name: mfa-service-server
+  namespace: auth-system
+spec:
+  podSelector:
+    matchLabels:
+      app: mfa-service
+  port: 8084
+  proxyProtocol: gRPC
+
+---
+# Authorization policies - allow authenticated mesh traffic
+apiVersion: policy.linkerd.io/v1beta2
+kind: AuthorizationPolicy
+metadata:
+  name: auth-edge-authz
+  namespace: auth-system
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: auth-edge-server
+  requiredAuthenticationRefs:
+    - name: mesh-tls
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: AuthorizationPolicy
+metadata:
+  name: token-service-authz
+  namespace: auth-system
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: token-service-server
+  requiredAuthenticationRefs:
+    - name: mesh-tls
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: AuthorizationPolicy
+metadata:
+  name: session-identity-authz
+  namespace: auth-system
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: session-identity-server
+  requiredAuthenticationRefs:
+    - name: mesh-tls
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: AuthorizationPolicy
+metadata:
+  name: iam-policy-authz
+  namespace: auth-system
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: iam-policy-server
+  requiredAuthenticationRefs:
+    - name: mesh-tls
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+apiVersion: policy.linkerd.io/v1beta2
+kind: AuthorizationPolicy
+metadata:
+  name: mfa-service-authz
+  namespace: auth-system
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: mfa-service-server
+  requiredAuthenticationRefs:
+    - name: mesh-tls
+      kind: MeshTLSAuthentication
+      group: policy.linkerd.io
+
+---
+# Mesh TLS authentication
+apiVersion: policy.linkerd.io/v1beta2
+kind: MeshTLSAuthentication
+metadata:
+  name: mesh-tls
+  namespace: auth-system
+spec:
+  identities:
+    - "*.auth-system.serviceaccount.identity.linkerd.cluster.local"

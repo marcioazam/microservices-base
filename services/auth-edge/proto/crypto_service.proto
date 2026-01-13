@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package crypto.v1;
+
+option go_package = "github.com/auth-platform/crypto-service/proto/v1";
+
+// CryptoService provides cryptographic operations
+service CryptoService {
+    // Symmetric Encryption
+    rpc Encrypt(EncryptRequest) returns (EncryptResponse);
+    rpc Decrypt(DecryptRequest) returns (DecryptResponse);
+    
+    // Asymmetric Encryption
+    rpc RSAEncrypt(RSAEncryptRequest) returns (RSAEncryptResponse);
+    rpc RSADecrypt(RSADecryptRequest) returns (RSADecryptResponse);
+    
+    // Digital Signatures
+    rpc Sign(SignRequest) returns (SignResponse);
+    rpc Verify(VerifyRequest) returns (VerifyResponse);
+    
+    // Key Management
+    rpc GenerateKey(GenerateKeyRequest) returns (GenerateKeyResponse);
+    rpc RotateKey(RotateKeyRequest) returns (RotateKeyResponse);
+    rpc GetKeyMetadata(GetKeyMetadataRequest) returns (GetKeyMetadataResponse);
+    rpc DeleteKey(DeleteKeyRequest) returns (DeleteKeyResponse);
+    
+    // Health
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Common types
+message KeyId {
+    string namespace = 1;
+    string id = 2;
+    uint32 version = 3;
+}
+
+enum KeyAlgorithm {
+    KEY_ALGORITHM_UNSPECIFIED = 0;
+    AES_128_GCM = 1;
+    AES_256_GCM = 2;
+    AES_128_CBC = 3;
+    AES_256_CBC = 4;
+    RSA_2048 = 5;
+    RSA_3072 = 6;
+    RSA_4096 = 7;
+    ECDSA_P256 = 8;
+    ECDSA_P384 = 9;
+    ECDSA_P521 = 10;
+}
+
+enum KeyState {
+    KEY_STATE_UNSPECIFIED = 0;
+    PENDING_ACTIVATION = 1;
+    ACTIVE = 2;
+    DEPRECATED = 3;
+    PENDING_DESTRUCTION = 4;
+    DESTROYED = 5;
+}
+
+enum HashAlgorithm {
+    HASH_ALGORITHM_UNSPECIFIED = 0;
+    SHA256 = 1;
+    SHA384 = 2;
+    SHA512 = 3;
+}
+
+// Symmetric Encryption
+message EncryptRequest {
+    bytes plaintext = 1;
+    KeyId key_id = 2;
+    bytes aad = 3;
+    string correlation_id = 4;
+}
+
+message EncryptResponse {
+    bytes ciphertext = 1;
+    bytes iv = 2;
+    bytes tag = 3;
+    KeyId key_id = 4;
+    string algorithm = 5;
+}
+
+message DecryptRequest {
+    bytes ciphertext = 1;
+    bytes iv = 2;
+    bytes tag = 3;
+    KeyId key_id = 4;
+    bytes aad = 5;
+    string correlation_id = 6;
+}
+
+message DecryptResponse {
+    bytes plaintext = 1;
+}
+
+// RSA Encryption
+message RSAEncryptRequest {
+    bytes plaintext = 1;
+    KeyId key_id = 2;
+    string correlation_id = 3;
+}
+
+message RSAEncryptResponse {
+    bytes ciphertext = 1;
+    KeyId key_id = 2;
+}
+
+message RSADecryptRequest {
+    bytes ciphertext = 1;
+    KeyId key_id = 2;
+    string correlation_id = 3;
+}
+
+message RSADecryptResponse {
+    bytes plaintext = 1;
+}
+
+// Digital Signatures
+message SignRequest {
+    bytes data = 1;
+    KeyId key_id = 2;
+    HashAlgorithm hash_algorithm = 3;
+    string correlation_id = 4;
+}
+
+message SignResponse {
+    bytes signature = 1;
+    KeyId key_id = 2;
+}
+
+message VerifyRequest {
+    bytes data = 1;
+    bytes signature = 2;
+    KeyId key_id = 3;
+    HashAlgorithm hash_algorithm = 4;
+    string correlation_id = 5;
+}
+
+message VerifyResponse {
+    bool valid = 1;
+}
+
+// Key Management
+message GenerateKeyRequest {
+    KeyAlgorithm algorithm = 1;
+    string namespace = 2;
+    map<string, string> metadata = 3;
+    string correlation_id = 4;
+}
+
+message GenerateKeyResponse {
+    KeyId key_id = 1;
+    KeyMetadata metadata = 2;
+}
+
+message RotateKeyRequest {
+    KeyId key_id = 1;
+    string correlation_id = 2;
+}
+
+message RotateKeyResponse {
+    KeyId new_key_id = 1;
+    KeyId old_key_id = 2;
+    KeyMetadata metadata = 3;
+}
+
+message GetKeyMetadataRequest {
+    KeyId key_id = 1;
+    string correlation_id = 2;
+}
+
+message GetKeyMetadataResponse {
+    KeyMetadata metadata = 1;
+}
+
+message DeleteKeyRequest {
+    KeyId key_id = 1;
+    string correlation_id = 2;
+}
+
+message DeleteKeyResponse {
+    bool success = 1;
+}
+
+message KeyMetadata {
+    KeyId id = 1;
+    KeyAlgorithm algorithm = 2;
+    KeyState state = 3;
+    int64 created_at = 4;
+    int64 expires_at = 5;
+    int64 rotated_at = 6;
+    KeyId previous_version = 7;
+    string owner_service = 8;
+    repeated string allowed_operations = 9;
+    uint64 usage_count = 10;
+}
+
+// Health Check
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    enum ServingStatus {
+        UNKNOWN = 0;
+        SERVING = 1;
+        NOT_SERVING = 2;
+    }
+    ServingStatus status = 1;
+    bool hsm_connected = 2;
+    bool kms_connected = 3;
+    string version = 4;
+    int64 uptime_seconds = 5;
+}

@@ -1,82 +1,84 @@
-// Example: gRPC interceptor with Auth Platform SDK
+// Package main demonstrates gRPC interceptor usage.
 package main
 
 import (
 	"context"
-	"log"
-	"net"
+	"fmt"
 
-	authplatform "github.com/auth-platform/sdk-go"
+	sdk "github.com/auth-platform/sdk-go/src"
+	"github.com/auth-platform/sdk-go/src/middleware"
+	"github.com/auth-platform/sdk-go/src/token"
+	"github.com/auth-platform/sdk-go/src/types"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/reflection"
-	"google.golang.org/grpc/status"
 )
 
-// ExampleService implements a simple gRPC service
-type ExampleService struct {
-	UnimplementedExampleServiceServer
-}
+// mockValidator implements middleware.TokenValidator for demonstration.
+type mockValidator struct{}
 
-func (s *ExampleService) GetData(ctx context.Context, req *GetDataRequest) (*GetDataResponse, error) {
-	// Get claims from context
-	claims, ok := authplatform.GetClaimsFromContext(ctx)
-	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "no claims in context")
-	}
-
-	return &GetDataResponse{
-		UserId: claims.Subject,
-		Data:   []string{"item1", "item2"},
-	}, nil
+func (m *mockValidator) ValidateToken(tokenStr string, audience string) (*token.ValidationResult, error) {
+	// In production, this would validate against JWKS
+	return token.NewValidationResult(
+		&types.Claims{Subject: "user123", Scope: "read write"},
+		tokenStr,
+		token.SchemeBearer,
+	), nil
 }
 
 func main() {
-	// Create auth client
-	client, err := authplatform.New(authplatform.Config{
-		BaseURL:  "https://auth.example.com",
-		ClientID: "your-client-id",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer client.Close()
+	fmt.Println("gRPC Interceptor Example")
+	fmt.Println("========================")
 
-	// Create gRPC server with interceptors
-	server := grpc.NewServer(
-		grpc.UnaryInterceptor(client.UnaryServerInterceptor(
-			authplatform.WithGRPCSkipMethods(
-				"/grpc.health.v1.Health/Check",
-				"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
-			),
-		)),
-		grpc.StreamInterceptor(client.StreamServerInterceptor()),
+	// Create gRPC interceptor
+	validator := &mockValidator{}
+	interceptor := middleware.NewGRPCInterceptor(
+		validator,
+		middleware.WithGRPCSkipMethods("/health.Health/Check"),
+		middleware.WithGRPCAudience("my-grpc-service"),
 	)
 
-	// Register services
-	RegisterExampleServiceServer(server, &ExampleService{})
-	reflection.Register(server)
+	// Get the interceptors
+	unaryInterceptor := interceptor.UnaryServerInterceptor()
+	streamInterceptor := interceptor.StreamServerInterceptor()
 
-	// Start server
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+	fmt.Println("Interceptors created:")
+	fmt.Printf("  Unary: %T\n", unaryInterceptor)
+	fmt.Printf("  Stream: %T\n", streamInterceptor)
+
+	// Example: Create gRPC server with interceptors
+	_ = grpc.NewServer(
+		grpc.UnaryInterceptor(unaryInterceptor),
+		grpc.StreamInterceptor(streamInterceptor),
+	)
+
+	fmt.Println("\ngRPC server would be configured with auth interceptors")
+
+	// Demonstrate error mapping
+	fmt.Println("\nError Mapping Examples:")
+	testErrors := []struct {
+		code sdk.ErrorCode
+		name string
+	}{
+		{"TOKEN_EXPIRED", "TokenExpired"},
+		{"TOKEN_INVALID", "TokenInvalid"},
+		{"RATE_LIMITED", "RateLimited"},
+		{"UNAUTHORIZED", "Unauthorized"},
 	}
 
-	log.Println("gRPC server starting on :50051")
-	if err := server.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	for _, te := range testErrors {
+		err := sdk.NewError(te.code, "test error")
+		grpcErr := sdk.MapToGRPCError(err)
+		fmt.Printf("  %s -> %v\n", te.name, grpcErr)
 	}
-}
 
-// Placeholder types - in real usage, these would be generated from proto
-type UnimplementedExampleServiceServer struct{}
-type GetDataRequest struct{}
-type GetDataResponse struct {
-	UserId string
-	Data   []string
-}
+	// Demonstrate context helpers
+	fmt.Println("\nContext Helpers:")
+	claims := &types.Claims{Subject: "user123", Scope: "read write admin"}
+	ctx := middleware.ContextWithClaims(context.Background(), claims)
 
-func RegisterExampleServiceServer(s *grpc.Server, srv *ExampleService) {
-	// Registration would be generated from proto
+	if subject, ok := sdk.GetSubject(ctx); ok {
+		fmt.Printf("  Subject: %s\n", subject)
+	}
+
+	fmt.Printf("  Has 'read' scope: %v\n", sdk.HasScope(ctx, "read"))
+	fmt.Printf("  Has 'delete' scope: %v\n", sdk.HasScope(ctx, "delete"))
 }

@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Deploy: Observability stack property-based tests (`test_observability.py`) validating Requirements 8.1-8.7
+- Deploy: Property 13 - Observability Dashboard Provisioning tests for Grafana, Prometheus, Loki, Tempo, Alertmanager
+- Deploy: GitOps property-based tests (`test_gitops.py`) validating Requirements 7.1-7.6
+- Deploy: Property 12 - GitOps Sync Policy tests for ArgoCD applications
+- Deploy: Kustomize overlay validation tests for dev/staging/prod environments
+- Cache Service: Modernization 2025 - Complete infrastructure upgrade
+- Cache Service: New `loggingclient` package for centralized logging via gRPC
+- Cache Service: New `observability` package unifying metrics, tracing, and context
+- Cache Service: Circuit breaker pattern for logging-service resilience
+- Cache Service: Batch buffering with configurable flush intervals for logs
+- Cache Service: Stderr fallback when logging circuit is open
+- Cache Service: Centralized error handling with `ToHTTPStatus()` and `ToGRPCStatus()` methods
+- Cache Service: Property-based tests for 15 correctness properties
+- Cache Service: Integration tests with testcontainers-go
+- Python SDK: Core components module (`auth_platform_sdk.core`) with centralized business logic
+- Python SDK: `ErrorFactory` for consistent error creation with correlation IDs
+- Python SDK: `JWKSCacheBase` with shared TTL and refresh-ahead logic
+- Python SDK: `TokenValidator` for centralized JWT validation
+- Python SDK: `AuthorizationBuilder` for authorization URL construction with PKCE
+- Python SDK: `TokenOperations` for token request building and processing
+- Python SDK: `SyncHTTPExecutor` and `AsyncHTTPExecutor` with retry and circuit breaker
 - Python SDK: Enhanced error hierarchy with standardized `ErrorCode` enum (AUTH_1xxx, VAL_2xxx, NET_3xxx, RATE_4xxx, SRV_5xxx, DPOP_6xxx, PKCE_7xxx)
 - Python SDK: New error classes - `TokenInvalidError`, `TimeoutError`, `DPoPError`, `PKCEError`, `ServerError`
 - Python SDK: Correlation ID support on all errors for distributed tracing
@@ -22,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python SDK: Retry utilities with circuit breaker support (`request_with_retry`, `async_request_with_retry`)
 
 ### Changed
+- Cache Service: Upgraded Go version from 1.22 to 1.24
+- Cache Service: Replaced `github.com/streadway/amqp` with `github.com/rabbitmq/amqp091-go`
+- Cache Service: Upgraded `github.com/caarlos0/env/v10` to `github.com/caarlos0/env/v11`
+- Cache Service: Upgraded OpenTelemetry packages to latest stable (1.36+)
+- Cache Service: Merged `internal/logging/`, `internal/metrics/`, `internal/tracing/` into unified `internal/observability/`
+- Cache Service: Removed duplicate code (CircuitState, Logger interface, context keys)
 - Python SDK: `AsyncJWKSCache` now uses `asyncio.Lock()` instead of threading lock for proper async safety
 - Python SDK: JWKS cache now uses typed `JWK` and `JWKS` models instead of raw dictionaries
 - Python SDK: Improved exception chaining with `from e` for better error traceability

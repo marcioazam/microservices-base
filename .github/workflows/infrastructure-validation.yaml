@@ -1,0 +1,233 @@
+# Infrastructure Validation Pipeline
+# Requirements 9.1-9.7
+
+name: Infrastructure Validation
+
+on:
+  push:
+    paths:
+      - 'deploy/**'
+      - '.github/workflows/infrastructure-validation.yaml'
+  pull_request:
+    paths:
+      - 'deploy/**'
+
+env:
+  HELM_VERSION: '3.13.0'
+  KUBECONFORM_VERSION: '0.6.4'
+  CHECKOV_VERSION: '3.1.0'
+  TRIVY_VERSION: '0.48.0'
+
+jobs:
+  docker-compose-validation:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose -f deploy/docker/docker-compose.yml config --quiet
+
+      - name: Validate docker-compose.dev.yml
+        run: |
+          docker compose \
+            -f deploy/docker/docker-compose.yml \
+            -f deploy/docker/docker-compose.dev.yml \
+            config --quiet
+
+      - name: Validate docker-compose.staging.yml
+        run: |
+          docker compose \
+            -f deploy/docker/docker-compose.yml \
+            -f deploy/docker/docker-compose.staging.yml \
+            config --quiet
+
+      - name: Validate docker-compose.prod.yml
+        run: |
+          docker compose \
+            -f deploy/docker/docker-compose.yml \
+            -f deploy/docker/docker-compose.prod.yml \
+            config --quiet
+
+  helm-validation:
+    name: Helm Chart Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Lint Helm charts
+        run: |
+          helm lint deploy/kubernetes/helm/auth-platform
+
+      - name: Template Helm charts
+        run: |
+          helm template test-release deploy/kubernetes/helm/auth-platform \
+            --set global.environment=production \
+            --set authEdgeService.image.tag=v1.0.0 \
+            --set tokenService.image.tag=v1.0.0 \
+            --set sessionIdentityCore.image.tag=v1.0.0 \
+            --set iamPolicyService.image.tag=v1.0.0 \
+            --set mfaService.image.tag=v1.0.0 \
+            > /tmp/helm-output.yaml
+
+      - name: Upload Helm output
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-output
+          path: /tmp/helm-output.yaml
+
+  kubernetes-validation:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    needs: helm-validation
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v${{ env.KUBECONFORM_VERSION }}/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Validate base manifests
+        run: |
+          kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            deploy/kubernetes/base/
+
+      - name: Build and validate dev overlay
+        run: |
+          kustomize build deploy/kubernetes/overlays/dev | \
+            kubeconform -strict -summary \
+              -schema-location default \
+              -skip Gateway,HTTPRoute,GRPCRoute,ServiceProfile
+
+      - name: Build and validate staging overlay
+        run: |
+          kustomize build deploy/kubernetes/overlays/staging | \
+            kubeconform -strict -summary \
+              -schema-location default \
+              -skip Gateway,HTTPRoute,GRPCRoute,ServiceProfile
+
+      - name: Build and validate prod overlay
+        run: |
+          kustomize build deploy/kubernetes/overlays/prod | \
+            kubeconform -strict -summary \
+              -schema-location default \
+              -skip Gateway,HTTPRoute,GRPCRoute,ServiceProfile
+
+      - name: Download Helm output
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-output
+          path: /tmp
+
+      - name: Validate Helm output
+        run: |
+          kubeconform -strict -summary \
+            -schema-location default \
+            -skip ServiceMonitor,PodDisruptionBudget \
+            /tmp/helm-output.yaml
+
+  security-scanning:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: kubernetes-validation
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Checkov
+        run: pip install checkov==${{ env.CHECKOV_VERSION }}
+
+      - name: Run Checkov on Kubernetes manifests
+        run: |
+          checkov -d deploy/kubernetes/base \
+            --framework kubernetes \
+            --output cli \
+            --soft-fail \
+            --skip-check CKV_K8S_40,CKV_K8S_43
+
+      - name: Run Checkov on Helm charts
+        run: |
+          checkov -d deploy/kubernetes/helm \
+            --framework helm \
+            --output cli \
+            --soft-fail
+
+      - name: Run Checkov on Docker Compose
+        run: |
+          checkov -f deploy/docker/docker-compose.yml \
+            --framework docker-compose \
+            --output cli \
+            --soft-fail
+
+      - name: Setup Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'deploy/'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+  property-tests:
+    name: Property-Based Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest hypothesis pyyaml
+
+      - name: Run property tests
+        run: |
+          pytest deploy/tests/ -v --tb=short
+
+  validation-gate:
+    name: Validation Gate
+    runs-on: ubuntu-latest
+    needs:
+      - docker-compose-validation
+      - helm-validation
+      - kubernetes-validation
+      - security-scanning
+      - property-tests
+    if: always()
+    steps:
+      - name: Check all validations passed
+        run: |
+          if [[ "${{ needs.docker-compose-validation.result }}" != "success" ]]; then
+            echo "Docker Compose validation failed"
+            exit 1
+          fi
+          if [[ "${{ needs.helm-validation.result }}" != "success" ]]; then
+            echo "Helm validation failed"
+            exit 1
+          fi
+          if [[ "${{ needs.kubernetes-validation.result }}" != "success" ]]; then
+            echo "Kubernetes validation failed"
+            exit 1
+          fi
+          if [[ "${{ needs.security-scanning.result }}" != "success" ]]; then
+            echo "Security scanning failed"
+            exit 1
+          fi
+          if [[ "${{ needs.property-tests.result }}" != "success" ]]; then
+            echo "Property tests failed"
+            exit 1
+          fi
+          echo "All validations passed!"

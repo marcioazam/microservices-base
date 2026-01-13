@@ -1,6 +1,7 @@
 use crate::error::AuthEdgeError;
 use x509_parser::prelude::*;
 use std::time::SystemTime;
+use std::io::Cursor;
 
 pub struct CertificateVerifier {
     trust_domain: String,
@@ -12,11 +13,15 @@ impl CertificateVerifier {
     }
 
     pub fn verify_certificate(&self, cert_pem: &str) -> Result<(), AuthEdgeError> {
-        let pem = pem::parse(cert_pem)
-            .map_err(|e| AuthEdgeError::CertificateError(format!("Failed to parse PEM: {}", e)))?;
+        // Parse PEM-encoded certificate using rustls-pemfile
+        let mut cursor = Cursor::new(cert_pem.as_bytes());
+        let cert_der = rustls_pemfile::certs(&mut cursor)
+            .next()
+            .ok_or_else(|| AuthEdgeError::CertificateError { reason: "No PEM certificate found".to_string() })?
+            .map_err(|e| AuthEdgeError::CertificateError { reason: format!("Failed to parse PEM: {}", e) })?;
 
-        let (_, cert) = X509Certificate::from_der(pem.contents())
-            .map_err(|e| AuthEdgeError::CertificateError(format!("Failed to parse certificate: {}", e)))?;
+        let (_, cert) = X509Certificate::from_der(&cert_der)
+            .map_err(|e| AuthEdgeError::CertificateError { reason: format!("Failed to parse certificate: {}", e) })?;
 
         // Check validity period
         self.check_validity(&cert)?;
@@ -37,11 +42,11 @@ impl CertificateVerifier {
         let not_after = cert.validity().not_after.timestamp();
 
         if now < not_before {
-            return Err(AuthEdgeError::CertificateError("Certificate not yet valid".to_string()));
+            return Err(AuthEdgeError::CertificateError { reason: "Certificate not yet valid".to_string() });
         }
 
         if now > not_after {
-            return Err(AuthEdgeError::CertificateError("Certificate expired".to_string()));
+            return Err(AuthEdgeError::CertificateError { reason: "Certificate expired".to_string() });
         }
 
         Ok(())
@@ -63,8 +68,8 @@ impl CertificateVerifier {
             }
         }
 
-        Err(AuthEdgeError::CertificateError(
-            format!("Certificate not from trusted domain: {}", self.trust_domain)
-        ))
+        Err(AuthEdgeError::CertificateError {
+            reason: format!("Certificate not from trusted domain: {}", self.trust_domain)
+        })
     }
 }

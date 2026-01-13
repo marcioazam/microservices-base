@@ -1,0 +1,170 @@
+{{- if .Values.authEdgeService.enabled }}
+{{- if .Values.authEdgeService.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-auth-edge
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth-edge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "auth-platform.fullname" . }}-auth-edge
+  minReplicas: {{ .Values.authEdgeService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.authEdgeService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.authEdgeService.autoscaling.targetCPUUtilizationPercentage }}
+    {{- if .Values.authEdgeService.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.authEdgeService.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+{{- end }}
+{{- end }}
+---
+{{- if .Values.tokenService.enabled }}
+{{- if .Values.tokenService.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-token
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: token
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "auth-platform.fullname" . }}-token
+  minReplicas: {{ .Values.tokenService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.tokenService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.tokenService.autoscaling.targetCPUUtilizationPercentage }}
+    {{- if .Values.tokenService.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.tokenService.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.sessionIdentityCore.enabled }}
+{{- if .Values.sessionIdentityCore.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-session
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: session
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "auth-platform.fullname" . }}-session
+  minReplicas: {{ .Values.sessionIdentityCore.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.sessionIdentityCore.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.sessionIdentityCore.autoscaling.targetCPUUtilizationPercentage }}
+    {{- if .Values.sessionIdentityCore.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.sessionIdentityCore.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.iamPolicyService.enabled }}
+{{- if .Values.iamPolicyService.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-iam
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iam
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "auth-platform.fullname" . }}-iam
+  minReplicas: {{ .Values.iamPolicyService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.iamPolicyService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.iamPolicyService.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.mfaService.enabled }}
+{{- if .Values.mfaService.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "auth-platform.fullname" . }}-mfa
+  labels:
+    {{- include "auth-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mfa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "auth-platform.fullname" . }}-mfa
+  minReplicas: {{ .Values.mfaService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.mfaService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.mfaService.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

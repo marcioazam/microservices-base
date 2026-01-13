@@ -1,0 +1,24 @@
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: password-recovery-resilience
+  namespace: password-recovery
+spec:
+  targetRef:
+    name: password-recovery-service
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    successThreshold: 3
+    timeout: "30s"
+  retry:
+    enabled: true
+    maxAttempts: 3
+    retryableStatusCodes: "5xx,429"
+    backoff:
+      initial: "100ms"
+      max: "1s"
+  timeout:
+    enabled: true
+    requestTimeout: "30s"
+    responseTimeout: "60s"

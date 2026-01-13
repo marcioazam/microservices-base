@@ -1,0 +1,56 @@
+# Logging Service Helm Values
+replicaCount: 3
+
+image:
+  repository: platform/logging-service-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 80
+  grpcPort: 8081
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Shared infrastructure references
+elasticsearch:
+  host: elasticsearch
+  port: 9200
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+
+redis:
+  host: redis
+  port: 6379
+
+otel:
+  endpoint: http://otel-collector:4317
+
+config:
+  environment: production
+  indexPrefix: logs
+  queueName: logs-ingestion
+  maxQueueSize: 100000
+  batchSize: 100
+  processingIntervalMs: 100
+  retention:
+    debugDays: 7
+    infoDays: 30
+    warnDays: 90
+    errorDays: 365

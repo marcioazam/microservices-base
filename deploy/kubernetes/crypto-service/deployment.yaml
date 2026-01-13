@@ -1,0 +1,151 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crypto-service
+  labels:
+    app: crypto-service
+    app.kubernetes.io/name: crypto-service
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: crypto-service
+  template:
+    metadata:
+      labels:
+        app: crypto-service
+        app.kubernetes.io/name: crypto-service
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      
+      serviceAccountName: crypto-service
+      automountServiceAccountToken: false
+      
+      containers:
+        - name: crypto-service
+          image: crypto-service:latest
+          imagePullPolicy: IfNotPresent
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          
+          envFrom:
+            - configMapRef:
+                name: crypto-service-config
+          
+          env:
+            - name: CRYPTO_TLS_CERT_PATH
+              value: "/etc/crypto-service/tls/tls.crt"
+            - name: CRYPTO_TLS_KEY_PATH
+              value: "/etc/crypto-service/tls/tls.key"
+            - name: CRYPTO_JWT_PUBLIC_KEY_PATH
+              value: "/etc/crypto-service/jwt/public.pem"
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: keys
+              mountPath: /var/lib/crypto-service/keys
+            - name: audit
+              mountPath: /var/log/crypto-service/audit
+            - name: tls
+              mountPath: /etc/crypto-service/tls
+              readOnly: true
+            - name: jwt
+              mountPath: /etc/crypto-service/jwt
+              readOnly: true
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: keys
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: audit
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tls
+          secret:
+            secretName: crypto-service-tls
+        - name: jwt
+          secret:
+            secretName: crypto-service-jwt
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: crypto-service
+                topologyKey: kubernetes.io/hostname
+      
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: crypto-service

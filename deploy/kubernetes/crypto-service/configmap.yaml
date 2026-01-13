@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crypto-service-config
+  labels:
+    app: crypto-service
+data:
+  CRYPTO_GRPC_PORT: "50051"
+  CRYPTO_REST_PORT: "8080"
+  CRYPTO_THREAD_POOL_SIZE: "4"
+  CRYPTO_KMS_PROVIDER: "local"
+  CRYPTO_LOCAL_KEY_PATH: "/var/lib/crypto-service/keys"
+  CRYPTO_KEY_CACHE_TTL: "300"
+  CRYPTO_KEY_CACHE_MAX_SIZE: "1000"
+  CRYPTO_AUDIT_STORAGE_PATH: "/var/log/crypto-service/audit"
+  CRYPTO_AUDIT_RETENTION_HOURS: "61320"
+  CRYPTO_AUDIT_ENCRYPT_LOGS: "true"
+  CRYPTO_LOG_LEVEL: "INFO"
+  CRYPTO_LOG_OUTPUT: "stdout"
+  CRYPTO_JWT_ISSUER: "auth-platform"
+  CRYPTO_JWT_AUDIENCE: "crypto-service"

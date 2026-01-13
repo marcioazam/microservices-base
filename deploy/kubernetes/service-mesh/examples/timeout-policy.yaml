@@ -1,0 +1,14 @@
+# Example: Timeout Policy
+# 30s request timeout, 10s response timeout
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: api-timeout
+  namespace: default
+spec:
+  targetRef:
+    name: api-service
+  timeout:
+    enabled: true
+    requestTimeout: "30s"
+    responseTimeout: "10s"

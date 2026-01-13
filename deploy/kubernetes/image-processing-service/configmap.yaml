@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: image-processing-config
+  namespace: image-processing
+data:
+  redis-host: "redis.image-processing.svc.cluster.local"
+  redis-port: "6379"
+  s3-endpoint: "http://minio.image-processing.svc.cluster.local:9000"
+  s3-bucket: "image-processing"
+  s3-region: "us-east-1"

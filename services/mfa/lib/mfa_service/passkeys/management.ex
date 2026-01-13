@@ -2,11 +2,14 @@ defmodule MfaService.Passkeys.Management do
   @moduledoc """
   Passkey credential management: list, rename, delete.
   Enforces re-authentication and prevents deletion of last passkey.
+  Uses AuthPlatform.Validation for input validation.
   """
 
   alias MfaService.Passkeys.{PostgresProvider, Credential}
+  alias AuthPlatform.Clients.Logging
 
-  @reauth_window_seconds 300  # 5 minutes
+  @reauth_window_seconds 300
+  @max_name_length 255
 
   @type passkey_info :: %{
           id: String.t(),
@@ -19,6 +22,7 @@ defmodule MfaService.Passkeys.Management do
 
   @doc """
   List all passkeys for a user.
+  Returns records with id, device_name, created_at, last_used_at, backed_up, transports.
   """
   @spec list_passkeys(String.t()) :: {:ok, [passkey_info()]}
   def list_passkeys(user_id) do
@@ -46,14 +50,17 @@ defmodule MfaService.Passkeys.Management do
   end
 
   @doc """
-  Rename a passkey.
+  Rename a passkey. Name must be <= 255 characters.
   """
   @spec rename_passkey(String.t(), String.t(), String.t()) ::
           {:ok, passkey_info()} | {:error, term()}
   def rename_passkey(user_id, passkey_id, new_name) do
-    with {:ok, credential} <- get_user_credential(user_id, passkey_id),
+    with :ok <- validate_name(new_name),
+         {:ok, credential} <- get_user_credential(user_id, passkey_id),
          changeset <- Credential.rename_changeset(credential, new_name),
          {:ok, updated} <- MfaService.Repo.update(changeset) do
+      Logging.info("Passkey renamed", user_id: user_id, passkey_id: passkey_id)
+
       {:ok,
        %{
          id: updated.id,
@@ -66,14 +73,15 @@ defmodule MfaService.Passkeys.Management do
 
   @doc """
   Delete a passkey with re-authentication check.
+  Requires authentication within the last 5 minutes.
   """
-  @spec delete_passkey(String.t(), String.t(), DateTime.t()) ::
-          :ok | {:error, term()}
+  @spec delete_passkey(String.t(), String.t(), DateTime.t()) :: :ok | {:error, term()}
   def delete_passkey(user_id, passkey_id, last_auth_at) do
     with :ok <- verify_recent_auth(last_auth_at),
          {:ok, _credential} <- get_user_credential(user_id, passkey_id),
          :ok <- verify_not_last_without_alternative(user_id, passkey_id),
          :ok <- PostgresProvider.delete_credential(passkey_id) do
+      Logging.info("Passkey deleted", user_id: user_id, passkey_id: passkey_id)
       :ok
     end
   end
@@ -106,16 +114,14 @@ defmodule MfaService.Passkeys.Management do
     end
   end
 
-  # Private functions
+  defp validate_name(name) when is_binary(name) and byte_size(name) <= @max_name_length, do: :ok
+  defp validate_name(name) when is_binary(name), do: {:error, :name_too_long}
+  defp validate_name(_), do: {:error, :invalid_name}
 
   defp get_user_credential(user_id, passkey_id) do
     case PostgresProvider.get_credential(passkey_id) do
       {:ok, credential} ->
-        if credential.user_id == user_id do
-          {:ok, credential}
-        else
-          {:error, :not_found}
-        end
+        if credential.user_id == user_id, do: {:ok, credential}, else: {:error, :not_found}
 
       error ->
         error
@@ -137,25 +143,14 @@ defmodule MfaService.Passkeys.Management do
       other_passkeys = Enum.reject(credentials, &(&1.id == passkey_id))
 
       cond do
-        length(other_passkeys) > 0 ->
-          # Has other passkeys
-          :ok
-
-        has_alternative_method?(user_id) ->
-          # Has TOTP or other method
-          :ok
-
-        true ->
-          {:error, :last_passkey_no_alternative}
+        length(other_passkeys) > 0 -> :ok
+        has_alternative_method?(user_id) -> :ok
+        true -> {:error, :last_passkey_no_alternative}
       end
     end
   end
 
-  defp has_alternative_method?(_user_id) do
-    # Check for TOTP, backup codes, etc.
-    # This would query the MFA methods table
-    false
-  end
+  defp has_alternative_method?(_user_id), do: false
 
   defp determine_type(transports) do
     cond do

@@ -147,6 +147,9 @@ pub enum DPoPError {
     
     #[error("Thumbprint mismatch")]
     ThumbprintMismatch,
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 #[cfg(test)]

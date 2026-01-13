@@ -271,6 +271,13 @@
 | 8.2.1 | proptest configurado (100+ casos) | ✅ | property_tests.rs | - |
 | 8.2.2 | Anotações de requirements | ✅ | - | - |
 | 8.2.3 | Invariantes testadas | ✅ | - | - |
+| 8.2.4 | Infrastructure property tests | ✅ | deploy/tests/ | - |
+| 8.2.5 | Helm chart validation tests | ✅ | test_helm_chart.py | - |
+| 8.2.6 | K8s security property tests | ✅ | test_kubernetes_security.py | - |
+| 8.2.7 | Docker Compose V2 tests | ✅ | test_docker_compose_v2.py | - |
+| 8.2.8 | OTel Collector tests | ✅ | test_otel_collector.py | - |
+| 8.2.9 | GitOps sync policy tests | ✅ | test_gitops.py | - |
+| 8.2.10 | Observability stack tests | ✅ | test_observability.py | - |
 
 ### 8.3 Contract Tests
 
@@ -327,8 +334,12 @@
 |---|-----------|--------|-----------|-----------------|
 | 10.2.1 | Helm charts | ✅ | kubernetes/helm | - |
 | 10.2.2 | Rolling deployments | ✅ | - | - |
-| 10.2.3 | Pod disruption budgets | ⚠️ | - | Adicionar |
-| 10.2.4 | Network policies | ⚠️ | - | Adicionar |
+| 10.2.3 | Pod disruption budgets | ✅ | pdb.yaml, test_helm_chart.py | - |
+| 10.2.4 | Network policies | ✅ | networkpolicy.yaml, test_kubernetes_security.py | - |
+| 10.2.5 | HPA autoscaling | ✅ | hpa.yaml, test_helm_chart.py | - |
+| 10.2.6 | Pod security standards | ✅ | test_kubernetes_security.py | - |
+| 10.2.7 | ServiceMonitor (Prometheus) | ✅ | servicemonitor.yaml, test_helm_chart.py | - |
+| 10.2.8 | External secrets support | ✅ | external-secret.yaml | - |
 
 ---
 
@@ -348,8 +359,6 @@
 ### Baixa Prioridade
 8. ⚠️ WAF rules
 9. ⚠️ BackendTLSPolicy (Gateway API v1.4)
-10. ⚠️ Pod disruption budgets
-11. ⚠️ Network policies
 
 ---
 
@@ -364,9 +373,9 @@
 | Observabilidade | 17 | 15 | 88% |
 | Resiliência | 14 | 14 | 100% |
 | Secrets Management | 7 | 3 | 43% |
-| Testes | 12 | 7 | 58% |
+| Testes | 14 | 9 | 64% |
 | API Design | 6 | 5 | 83% |
-| Deployment | 8 | 5 | 63% |
-| **TOTAL** | **130** | **110** | **85%** |
+| Deployment | 12 | 11 | 92% |
+| **TOTAL** | **136** | **120** | **88%** |
 
-**Score Ponderado (por criticidade): 88/100**
+**Score Ponderado (por criticidade): 91/100**

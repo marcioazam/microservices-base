@@ -1,6 +1,9 @@
+//! JWT Claims structure with validation helpers.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// JWT Claims structure following RFC 7519.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub iss: String,
@@ -20,11 +23,13 @@ pub struct Claims {
 }
 
 impl Claims {
+    /// Checks if the token is expired.
     pub fn is_expired(&self) -> bool {
         let now = chrono::Utc::now().timestamp();
         self.exp < now
     }
 
+    /// Checks if the token has a specific scope.
     pub fn has_scope(&self, scope: &str) -> bool {
         self.scopes
             .as_ref()
@@ -32,6 +37,22 @@ impl Claims {
             .unwrap_or(false)
     }
 
+    /// Checks if a claim is present (centralized method).
+    pub fn has_claim(&self, claim_name: &str) -> bool {
+        match claim_name {
+            "iss" => !self.iss.is_empty(),
+            "sub" => !self.sub.is_empty(),
+            "aud" => !self.aud.is_empty(),
+            "exp" => true,
+            "iat" => true,
+            "jti" => !self.jti.is_empty(),
+            "session_id" => self.session_id.is_some(),
+            "scopes" => self.scopes.is_some(),
+            _ => self.custom.contains_key(claim_name),
+        }
+    }
+
+    /// Converts claims to a string map for gRPC response.
     pub fn to_map(&self) -> HashMap<String, String> {
         let mut map = HashMap::new();
         map.insert("iss".to_string(), self.iss.clone());

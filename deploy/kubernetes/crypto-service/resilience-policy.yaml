@@ -1,0 +1,22 @@
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: crypto-service-resilience
+  labels:
+    app: crypto-service
+spec:
+  targetRef:
+    name: crypto-service
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    recoveryTimeout: "30s"
+  retry:
+    enabled: true
+    maxAttempts: 3
+    retryableStatusCodes: "5xx,429"
+    backoff: "exponential"
+  timeout:
+    enabled: true
+    requestTimeout: "30s"
+    responseTimeout: "60s"

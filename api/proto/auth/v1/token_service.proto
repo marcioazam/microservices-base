@@ -1,0 +1,555 @@
+// Copyright 2025 Auth Platform. All rights reserved.
+// Token Service - OAuth 2.1 token management and issuance.
+
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/auth-platform/api/gen/go/auth/v1;authv1";
+option java_package = "com.authplatform.api.auth.v1";
+option java_multiple_files = true;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+
+// TokenService manages OAuth 2.1 token operations including issuance,
+// refresh, revocation, and key management.
+service TokenService {
+  // IssueTokens issues access, refresh, and ID tokens.
+  // Supports OAuth 2.1 grant types with PKCE requirement.
+  rpc IssueTokens(IssueTokensRequest) returns (TokenResponse) {
+    option (google.api.http) = {
+      post: "/v1/oauth/token"
+      body: "*"
+    };
+  }
+
+  // RefreshTokens exchanges a refresh token for new tokens.
+  // Implements refresh token rotation for security.
+  rpc RefreshTokens(RefreshTokensRequest) returns (TokenResponse) {
+    option (google.api.http) = {
+      post: "/v1/oauth/token/refresh"
+      body: "*"
+    };
+  }
+
+  // RevokeToken revokes an access or refresh token per RFC 7009.
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse) {
+    option (google.api.http) = {
+      post: "/v1/oauth/revoke"
+      body: "*"
+    };
+  }
+
+  // RevokeAllUserTokens revokes all tokens for a user.
+  rpc RevokeAllUserTokens(RevokeAllUserTokensRequest) returns (RevokeAllUserTokensResponse) {
+    option (google.api.http) = {
+      post: "/v1/oauth/revoke/user"
+      body: "*"
+    };
+  }
+
+  // ExchangeToken performs token exchange per RFC 8693.
+  // Supports impersonation and delegation use cases.
+  rpc ExchangeToken(ExchangeTokenRequest) returns (TokenResponse) {
+    option (google.api.http) = {
+      post: "/v1/oauth/token/exchange"
+      body: "*"
+    };
+  }
+
+  // GetJWKS returns the JSON Web Key Set for token verification.
+  rpc GetJWKS(GetJWKSRequest) returns (JWKSResponse) {
+    option (google.api.http) = {
+      get: "/v1/.well-known/jwks.json"
+    };
+  }
+
+  // RotateSigningKey rotates the token signing key.
+  // Supports graceful key rotation with overlap period.
+  rpc RotateSigningKey(RotateSigningKeyRequest) returns (RotateSigningKeyResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/keys/rotate"
+      body: "*"
+    };
+  }
+
+  // PushAuthorizationRequest handles PAR per RFC 9126.
+  // Required for FAPI 2.0 compliance.
+  rpc PushAuthorizationRequest(PARRequest) returns (PARResponse) {
+    option (google.api.http) = {
+      post: "/v1/oauth/par"
+      body: "*"
+    };
+  }
+
+  // GetOpenIDConfiguration returns OpenID Connect discovery document.
+  rpc GetOpenIDConfiguration(GetOpenIDConfigurationRequest) returns (OpenIDConfiguration) {
+    option (google.api.http) = {
+      get: "/v1/.well-known/openid-configuration"
+    };
+  }
+}
+
+
+// GrantType enumerates OAuth 2.1 grant types.
+enum GrantType {
+  // Unspecified grant type.
+  GRANT_TYPE_UNSPECIFIED = 0;
+  // Authorization code grant with PKCE (required in OAuth 2.1).
+  GRANT_TYPE_AUTHORIZATION_CODE = 1;
+  // Client credentials grant for machine-to-machine.
+  GRANT_TYPE_CLIENT_CREDENTIALS = 2;
+  // Refresh token grant.
+  GRANT_TYPE_REFRESH_TOKEN = 3;
+  // Device authorization grant (RFC 8628).
+  GRANT_TYPE_DEVICE_CODE = 4;
+  // Token exchange grant (RFC 8693).
+  GRANT_TYPE_TOKEN_EXCHANGE = 5;
+  // JWT Bearer grant (RFC 7523).
+  GRANT_TYPE_JWT_BEARER = 6;
+}
+
+// IssueTokensRequest for token issuance.
+message IssueTokensRequest {
+  // Grant type for token issuance.
+  GrantType grant_type = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum.defined_only = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // User ID (for authorization_code grant).
+  string user_id = 2 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Session ID to bind tokens to.
+  string session_id = 3 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Client ID.
+  string client_id = 4 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 1,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Client secret (for confidential clients).
+  string client_secret = 5;
+
+  // Requested scopes (space-separated or repeated).
+  repeated string scopes = 6;
+
+  // Custom claims to include in tokens.
+  google.protobuf.Struct custom_claims = 7;
+
+  // Access token TTL override.
+  google.protobuf.Duration access_token_ttl = 8 [(buf.validate.field).duration = {
+    gte: { seconds: 60 }
+    lte: { seconds: 86400 }
+  }];
+
+  // Refresh token TTL override.
+  google.protobuf.Duration refresh_token_ttl = 9 [(buf.validate.field).duration = {
+    gte: { seconds: 3600 }
+    lte: { seconds: 2592000 }
+  }];
+
+  // Authorization code (for authorization_code grant).
+  string code = 10;
+
+  // PKCE code verifier (required for authorization_code grant).
+  string code_verifier = 11 [(buf.validate.field).string = {
+    min_len: 43
+    max_len: 128
+    ignore_empty: true
+  }];
+
+  // Redirect URI for validation.
+  string redirect_uri = 12 [(buf.validate.field).string = {
+    uri: true
+    ignore_empty: true
+  }];
+
+  // DPoP JWK thumbprint for sender-constrained tokens.
+  string dpop_jkt = 13;
+
+  // Rich Authorization Request details (RFC 9396).
+  repeated AuthorizationDetail authorization_details = 14;
+
+  // Resource indicators (RFC 8707).
+  repeated string resource = 15;
+
+  // Audience for the token.
+  repeated string audience = 16;
+}
+
+// TokenResponse contains issued tokens.
+message TokenResponse {
+  // Access token (JWT).
+  string access_token = 1;
+
+  // Token type: "Bearer" or "DPoP".
+  string token_type = 2;
+
+  // Access token expiration in seconds.
+  int64 expires_in = 3;
+
+  // Refresh token (opaque or JWT).
+  string refresh_token = 4;
+
+  // ID token (JWT, for OIDC flows).
+  string id_token = 5;
+
+  // Granted scopes (may differ from requested).
+  string scope = 6;
+
+  // Authorization details granted.
+  repeated AuthorizationDetail authorization_details = 7;
+
+  // Refresh token expiration in seconds.
+  optional int64 refresh_expires_in = 8;
+}
+
+// RefreshTokensRequest for token refresh.
+message RefreshTokensRequest {
+  // Refresh token to exchange.
+  string refresh_token = 1 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Client ID.
+  string client_id = 2 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Client secret (for confidential clients).
+  string client_secret = 3;
+
+  // Requested scopes (must be subset of original).
+  repeated string scopes = 4;
+
+  // DPoP JWK thumbprint for bound tokens.
+  string dpop_jkt = 5;
+
+  // Resource indicators.
+  repeated string resource = 6;
+}
+
+// RevokeTokenRequest for token revocation (RFC 7009).
+message RevokeTokenRequest {
+  // Token to revoke.
+  string token = 1 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Token type hint: "access_token" or "refresh_token".
+  string token_type_hint = 2 [(buf.validate.field).string = {
+    in: ["access_token", "refresh_token", ""]
+  }];
+
+  // Client ID.
+  string client_id = 3 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Client secret (for confidential clients).
+  string client_secret = 4;
+}
+
+// RevokeTokenResponse confirms revocation.
+message RevokeTokenResponse {
+  // Always true per RFC 7009 (revocation is idempotent).
+  bool success = 1;
+}
+
+// RevokeAllUserTokensRequest revokes all tokens for a user.
+message RevokeAllUserTokensRequest {
+  // User ID whose tokens to revoke.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Reason for revocation.
+  string reason = 2;
+}
+
+// RevokeAllUserTokensResponse confirms bulk revocation.
+message RevokeAllUserTokensResponse {
+  // Number of tokens revoked.
+  int32 revoked_count = 1;
+}
+
+
+// ExchangeTokenRequest for token exchange (RFC 8693).
+message ExchangeTokenRequest {
+  // Grant type (must be token-exchange).
+  string grant_type = 1 [(buf.validate.field).string.const = "urn:ietf:params:oauth:grant-type:token-exchange"];
+
+  // Subject token to exchange.
+  string subject_token = 2 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Subject token type URI.
+  string subject_token_type = 3 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Actor token (for delegation).
+  string actor_token = 4;
+
+  // Actor token type URI.
+  string actor_token_type = 5;
+
+  // Requested token type.
+  string requested_token_type = 6;
+
+  // Target audience.
+  string audience = 7;
+
+  // Requested scopes.
+  string scope = 8;
+
+  // Target resource.
+  string resource = 9;
+
+  // Client ID.
+  string client_id = 10 [(buf.validate.field).required = true];
+
+  // Client secret.
+  string client_secret = 11;
+}
+
+// GetJWKSRequest for JWKS retrieval.
+message GetJWKSRequest {}
+
+// JWKSResponse contains the JSON Web Key Set.
+message JWKSResponse {
+  // Array of JSON Web Keys.
+  repeated JWK keys = 1;
+}
+
+// JWK represents a JSON Web Key.
+message JWK {
+  // Key type: "RSA", "EC", "OKP".
+  string kty = 1;
+
+  // Key use: "sig" (signature).
+  string use = 2;
+
+  // Key ID.
+  string kid = 3;
+
+  // Algorithm: "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "EdDSA".
+  string alg = 4;
+
+  // RSA modulus (base64url).
+  string n = 5;
+
+  // RSA exponent (base64url).
+  string e = 6;
+
+  // EC curve: "P-256", "P-384", "P-521", "Ed25519".
+  string crv = 7;
+
+  // EC x coordinate (base64url).
+  string x = 8;
+
+  // EC y coordinate (base64url).
+  string y = 9;
+
+  // X.509 certificate chain.
+  repeated string x5c = 10;
+
+  // X.509 certificate SHA-256 thumbprint.
+  string x5t_s256 = 11;
+}
+
+// RotateSigningKeyRequest for key rotation.
+message RotateSigningKeyRequest {
+  // Algorithm for new key: "RS256", "ES256", "EdDSA".
+  string algorithm = 1 [(buf.validate.field).string = {
+    in: ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "EdDSA"]
+  }];
+
+  // Skip grace period (immediate rotation).
+  bool immediate = 2;
+
+  // Grace period for old key validity.
+  google.protobuf.Duration grace_period = 3;
+}
+
+// RotateSigningKeyResponse confirms rotation.
+message RotateSigningKeyResponse {
+  // New key ID.
+  string new_key_id = 1;
+
+  // Old key ID (still valid during grace period).
+  string old_key_id = 2;
+
+  // When old key expires.
+  google.protobuf.Timestamp old_key_expires_at = 3;
+}
+
+// PARRequest for Pushed Authorization Request (RFC 9126).
+message PARRequest {
+  // Client ID.
+  string client_id = 1 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Client secret (for confidential clients).
+  string client_secret = 2;
+
+  // Response type: "code".
+  string response_type = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.const = "code",
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Redirect URI.
+  string redirect_uri = 4 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uri = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Requested scopes.
+  string scope = 5;
+
+  // State parameter.
+  string state = 6;
+
+  // PKCE code challenge (required).
+  string code_challenge = 7 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 43,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Code challenge method (must be S256).
+  string code_challenge_method = 8 [
+    (buf.validate.field).string.const = "S256"
+  ];
+
+  // Nonce for ID token.
+  string nonce = 9;
+
+  // Authorization details (RAR).
+  repeated AuthorizationDetail authorization_details = 10;
+
+  // DPoP JWK thumbprint.
+  string dpop_jkt = 11;
+
+  // Resource indicators.
+  repeated string resource = 12;
+
+  // Prompt parameter.
+  string prompt = 13;
+
+  // Login hint.
+  string login_hint = 14;
+
+  // ACR values.
+  string acr_values = 15;
+}
+
+// PARResponse contains the request_uri.
+message PARResponse {
+  // Request URI to use in authorization request.
+  string request_uri = 1;
+
+  // Expiration in seconds (max 600 per FAPI 2.0).
+  int64 expires_in = 2 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 600
+  }];
+}
+
+// GetOpenIDConfigurationRequest for OIDC discovery.
+message GetOpenIDConfigurationRequest {}
+
+// OpenIDConfiguration is the OIDC discovery document.
+message OpenIDConfiguration {
+  // Issuer identifier.
+  string issuer = 1;
+
+  // Authorization endpoint.
+  string authorization_endpoint = 2;
+
+  // Token endpoint.
+  string token_endpoint = 3;
+
+  // UserInfo endpoint.
+  string userinfo_endpoint = 4;
+
+  // JWKS URI.
+  string jwks_uri = 5;
+
+  // Registration endpoint.
+  string registration_endpoint = 6;
+
+  // Supported scopes.
+  repeated string scopes_supported = 7;
+
+  // Supported response types.
+  repeated string response_types_supported = 8;
+
+  // Supported response modes.
+  repeated string response_modes_supported = 9;
+
+  // Supported grant types.
+  repeated string grant_types_supported = 10;
+
+  // Supported subject types.
+  repeated string subject_types_supported = 11;
+
+  // Supported ID token signing algorithms.
+  repeated string id_token_signing_alg_values_supported = 12;
+
+  // Supported token endpoint auth methods.
+  repeated string token_endpoint_auth_methods_supported = 13;
+
+  // Supported claims.
+  repeated string claims_supported = 14;
+
+  // Code challenge methods supported.
+  repeated string code_challenge_methods_supported = 15;
+
+  // PAR endpoint.
+  string pushed_authorization_request_endpoint = 16;
+
+  // Whether PAR is required.
+  bool require_pushed_authorization_requests = 17;
+
+  // Revocation endpoint.
+  string revocation_endpoint = 18;
+
+  // Introspection endpoint.
+  string introspection_endpoint = 19;
+
+  // DPoP signing algorithms supported.
+  repeated string dpop_signing_alg_values_supported = 20;
+}
+
+// AuthorizationDetail imported from auth_edge.proto
+// Re-exported here for convenience in token flows.

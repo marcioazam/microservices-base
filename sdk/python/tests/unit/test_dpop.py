@@ -191,15 +191,19 @@ class TestDPoPProofVerification:
 
     def test_rejects_expired_proof(self) -> None:
         """Should reject expired proof."""
+        import time
         key_pair = DPoPKeyPair()
         proof = key_pair.create_proof("POST", "https://auth.example.com/token")
+
+        # Wait a moment so the proof ages
+        time.sleep(0.1)
 
         with pytest.raises(DPoPError, match="expired"):
             verify_dpop_proof(
                 proof.proof,
                 "POST",
                 "https://auth.example.com/token",
-                max_age_seconds=0,  # Immediately expired
+                max_age_seconds=0,  # Immediately expired after any time passes
             )
 
     def test_verifies_access_token_hash(self) -> None:

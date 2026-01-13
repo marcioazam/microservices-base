@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-edge-service
+  labels:
+    app: auth-edge-service
+    app.kubernetes.io/name: auth-edge-service
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: auth-edge-service
+  template:
+    metadata:
+      labels:
+        app: auth-edge-service
+        app.kubernetes.io/name: auth-edge-service
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      
+      serviceAccountName: auth-edge-service
+      automountServiceAccountToken: false
+      
+      containers:
+        - name: auth-edge-service
+          image: auth-platform/auth-edge-service:latest
+          imagePullPolicy: IfNotPresent
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          ports:
+            - name: grpc
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          
+          env:
+            - name: SERVICE_NAME
+              value: auth-edge-service
+            - name: TOKEN_SERVICE_URL
+              value: token-service:8081
+            - name: SESSION_SERVICE_URL
+              value: session-identity-core:8082
+            - name: IAM_SERVICE_URL
+              value: iam-policy-service:8083
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+          
+          livenessProbe:
+            grpc:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            grpc:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          startupProbe:
+            grpc:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: auth-edge-service
+                topologyKey: kubernetes.io/hostname

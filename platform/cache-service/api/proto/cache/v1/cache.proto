@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package cache.v1;
+
+option go_package = "github.com/auth-platform/cache-service/api/proto/cache/v1;cachev1";
+
+// CacheService provides cache operations.
+service CacheService {
+  // Get retrieves a value from cache.
+  rpc Get(GetRequest) returns (GetResponse);
+  
+  // Set stores a value in cache.
+  rpc Set(SetRequest) returns (SetResponse);
+  
+  // Delete removes a value from cache.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  
+  // BatchGet retrieves multiple values from cache.
+  rpc BatchGet(BatchGetRequest) returns (BatchGetResponse);
+  
+  // BatchSet stores multiple key-value pairs in cache.
+  rpc BatchSet(BatchSetRequest) returns (BatchSetResponse);
+  
+  // Health returns the health status of the cache service.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// CacheSource indicates where the cached value was retrieved from.
+enum CacheSource {
+  CACHE_SOURCE_UNSPECIFIED = 0;
+  CACHE_SOURCE_REDIS = 1;
+  CACHE_SOURCE_LOCAL = 2;
+}
+
+// GetRequest is the request for Get operation.
+message GetRequest {
+  // The cache key to retrieve.
+  string key = 1;
+  // The namespace for the key.
+  string namespace = 2;
+}
+
+// GetResponse is the response for Get operation.
+message GetResponse {
+  // Whether the key was found.
+  bool found = 1;
+  // The cached value.
+  bytes value = 2;
+  // The source of the cached value.
+  CacheSource source = 3;
+}
+
+// SetRequest is the request for Set operation.
+message SetRequest {
+  // The cache key.
+  string key = 1;
+  // The value to cache.
+  bytes value = 2;
+  // Time-to-live in seconds (0 for default).
+  int64 ttl_seconds = 3;
+  // The namespace for the key.
+  string namespace = 4;
+  // Whether to encrypt the value.
+  bool encrypt = 5;
+}
+
+// SetResponse is the response for Set operation.
+message SetResponse {
+  // Whether the operation was successful.
+  bool success = 1;
+}
+
+// DeleteRequest is the request for Delete operation.
+message DeleteRequest {
+  // The cache key to delete.
+  string key = 1;
+  // The namespace for the key.
+  string namespace = 2;
+}
+
+// DeleteResponse is the response for Delete operation.
+message DeleteResponse {
+  // Whether the key was deleted.
+  bool deleted = 1;
+}
+
+// BatchGetRequest is the request for BatchGet operation.
+message BatchGetRequest {
+  // The cache keys to retrieve.
+  repeated string keys = 1;
+  // The namespace for the keys.
+  string namespace = 2;
+}
+
+// BatchGetResponse is the response for BatchGet operation.
+message BatchGetResponse {
+  // Map of key to value for found keys.
+  map<string, bytes> values = 1;
+  // List of keys that were not found.
+  repeated string missing_keys = 2;
+}
+
+// BatchSetRequest is the request for BatchSet operation.
+message BatchSetRequest {
+  // Map of key to value to cache.
+  map<string, bytes> entries = 1;
+  // Time-to-live in seconds (0 for default).
+  int64 ttl_seconds = 2;
+  // The namespace for the keys.
+  string namespace = 3;
+}
+
+// BatchSetResponse is the response for BatchSet operation.
+message BatchSetResponse {
+  // Whether the operation was successful.
+  bool success = 1;
+  // Number of entries stored.
+  int32 stored_count = 2;
+}
+
+// HealthRequest is the request for Health operation.
+message HealthRequest {}
+
+// HealthResponse is the response for Health operation.
+message HealthResponse {
+  // Whether the service is healthy.
+  bool healthy = 1;
+  // Status of Redis connection.
+  string redis_status = 2;
+  // Status of message broker connection.
+  string broker_status = 3;
+  // Whether local cache is enabled.
+  bool local_cache_enabled = 4;
+}

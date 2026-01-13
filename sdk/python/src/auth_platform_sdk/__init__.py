@@ -65,6 +65,17 @@ from .pkce import (
     verify_code_challenge,
 )
 
+# Core components (December 2025 State of Art)
+from .core import (
+    AuthorizationBuilder,
+    AsyncHTTPExecutor,
+    ErrorFactory,
+    JWKSCacheBase,
+    SyncHTTPExecutor,
+    TokenOperations,
+    TokenValidator,
+)
+
 __all__ = [
     # Clients
     "AuthPlatformClient",
@@ -111,6 +122,14 @@ __all__ = [
     "verify_code_challenge",
     "generate_state",
     "generate_nonce",
+    # Core components (December 2025 State of Art)
+    "ErrorFactory",
+    "JWKSCacheBase",
+    "TokenOperations",
+    "AuthorizationBuilder",
+    "TokenValidator",
+    "SyncHTTPExecutor",
+    "AsyncHTTPExecutor",
 ]
 
 __version__ = "1.0.0"

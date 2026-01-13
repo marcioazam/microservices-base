@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-service-config
+  namespace: auth-platform
+data:
+  application.yml: |
+    server:
+      port: 8080
+      shutdown: graceful
+    
+    spring:
+      lifecycle:
+        timeout-per-shutdown-phase: 30s
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,prometheus
+      endpoint:
+        health:
+          probes:
+            enabled: true
+          show-details: when_authorized
+    
+    app:
+      rate-limit:
+        registration:
+          per-minute: 5
+        resend:
+          per-hour: 3
+        verify:
+          per-minute: 10
+      outbox:
+        poll-interval-ms: 1000
+        batch-size: 100
+        topic-prefix: user-service

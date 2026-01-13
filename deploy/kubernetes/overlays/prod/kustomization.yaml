@@ -1,0 +1,89 @@
+# Production Environment Overlay
+# Kustomize configuration for production environment
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: auth-system
+
+labels:
+  - pairs:
+      environment: production
+      tier: prod
+    includeSelectors: false
+
+resources:
+  - ../../base
+  - pdb.yaml
+  - hpa.yaml
+
+# Production-specific patches
+patches:
+  # Production replicas
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=auth-platform"
+
+  # Warn logging level
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: LOG_LEVEL
+          value: warn
+    target:
+      kind: Deployment
+
+  # Pod anti-affinity for HA
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/part-of: auth-platform
+                  topologyKey: kubernetes.io/hostname
+    target:
+      kind: Deployment
+
+# Production ConfigMap
+configMapGenerator:
+  - name: auth-platform-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=warn
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+replicas:
+  - name: auth-edge-service
+    count: 3
+  - name: token-service
+    count: 3
+  - name: session-identity-core
+    count: 3
+  - name: iam-policy-service
+    count: 3
+  - name: mfa-service
+    count: 2
+
+images:
+  - name: auth-platform/auth-edge-service
+    newTag: v1.0.0
+  - name: auth-platform/token-service
+    newTag: v1.0.0
+  - name: auth-platform/session-identity-core
+    newTag: v1.0.0
+  - name: auth-platform/iam-policy-service
+    newTag: v1.0.0
+  - name: auth-platform/mfa-service
+    newTag: v1.0.0

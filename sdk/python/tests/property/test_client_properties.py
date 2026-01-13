@@ -165,7 +165,7 @@ class TestAsyncClientContextManagerProperties:
 
                 mock_client.aclose.assert_called_once()
 
-        asyncio.get_event_loop().run_until_complete(test_context_manager())
+        asyncio.run(test_context_manager())
 
     @given(
         base_url=valid_base_url,
@@ -205,4 +205,4 @@ class TestAsyncClientContextManagerProperties:
 
                 mock_client.aclose.assert_called_once()
 
-        asyncio.get_event_loop().run_until_complete(test_exception_handling())
+        asyncio.run(test_exception_handling())

@@ -92,6 +92,7 @@ class AsyncAuthPlatformClient:
                 jwk = await self._jwks_cache.get_signing_key(kid)
 
                 # Build key from JWK
+                key: Any
                 if jwk.kty == "EC":
                     key = algorithms.ECAlgorithm.from_jwk(jwk.model_dump())
                 elif jwk.kty == "RSA":

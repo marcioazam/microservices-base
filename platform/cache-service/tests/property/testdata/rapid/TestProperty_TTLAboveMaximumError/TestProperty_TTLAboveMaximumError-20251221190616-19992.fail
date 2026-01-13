@@ -1,0 +1,17 @@
+# 2025/12/21 19:06:16.793880 [TestProperty_TTLAboveMaximumError] [rapid] draw maxHours: 9
+# 2025/12/21 19:06:16.793880 [TestProperty_TTLAboveMaximumError] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/ttl_properties_test.go:113
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/ttl_properties_test.go:101
+# 	Error:      	An error is expected but got nil.
+# 	Test:       	TestProperty_TTLAboveMaximumError
+# 	Messages:   	TTL above maximum should return error
+# 
+v0.4.8#1960787313645279506
+0x13b6a1f736b556
+0x1c76b950bde7e5
+0x1b
+0x8

@@ -7,6 +7,7 @@ Structured logging, tracing, and metrics for Go applications.
 - Structured JSON logging with levels
 - W3C Trace Context propagation
 - Correlation ID management
+- User context propagation
 - PII redaction in logs
 - OpenTelemetry integration
 
@@ -14,6 +15,63 @@ Structured logging, tracing, and metrics for Go applications.
 
 ```go
 import "github.com/authcorp/libs/go/src/observability"
+```
+
+## Context Propagation
+
+The package provides context propagation utilities for distributed systems:
+
+### Correlation ID
+
+```go
+// Add correlation ID to context
+ctx = observability.WithCorrelationID(ctx, "req-12345")
+
+// Extract correlation ID from context
+id := observability.CorrelationIDFromContext(ctx)
+
+// Generate a new correlation ID
+newID := observability.GenerateCorrelationID()
+
+// Ensure context has a correlation ID (generates if missing)
+ctx = observability.EnsureCorrelationID(ctx)
+```
+
+### Trace Context
+
+```go
+// Add trace context to context
+ctx = observability.WithTraceContext(ctx, traceID, spanID)
+
+// Extract trace context from context
+traceID, spanID := observability.TraceContextFromContext(ctx)
+
+// Generate new IDs
+traceID := observability.GenerateTraceID()
+spanID := observability.GenerateSpanID()
+```
+
+### User Context
+
+```go
+// Add user context
+ctx = observability.WithUserContext(ctx, observability.UserContext{
+    UserID:   "user-123",
+    TenantID: "tenant-456",
+    Roles:    []string{"admin", "user"},
+})
+
+// Extract user context
+if user, ok := observability.UserContextFromContext(ctx); ok {
+    fmt.Println(user.UserID)
+}
+```
+
+### Context Propagation
+
+```go
+// Propagate context values to a new context (useful for goroutines)
+childCtx := observability.PropagateContext(parentCtx)
 ```
 
 ## W3C Trace Context

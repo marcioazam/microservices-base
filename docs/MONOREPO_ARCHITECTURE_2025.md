@@ -41,6 +41,11 @@ auth-platform/
 │   ├── rust/                   # Rust shared libs
 │   └── elixir/                 # Elixir shared libs
 ├── platform/                   # Platform/Infrastructure services (NEW)
+│   ├── resilience-operator/    # Kubernetes Operator for ResiliencePolicy CRD
+│   │   ├── api/v1/             # CRD types (ResiliencePolicy)
+│   │   ├── cmd/
+│   │   ├── internal/
+│   │   └── go.mod
 │   └── resilience-service/     # Resilience microservice
 │       ├── cmd/
 │       ├── internal/

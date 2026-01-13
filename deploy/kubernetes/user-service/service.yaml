@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: auth-platform
+  labels:
+    app: user-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: user-service
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-service
+  namespace: auth-platform

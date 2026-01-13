@@ -1,0 +1,23 @@
+# ResiliencePolicy for IAM Policy Service
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: iam-policy-resilience
+  namespace: iam-policy
+spec:
+  targetRef:
+    name: iam-policy-service
+    port: 8080
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 10
+    failureAccrualMethod: consecutive
+  retry:
+    enabled: true
+    maxAttempts: 2
+    retryableStatusCodes: "502,503,504"
+    retryTimeout: "3s"
+  timeout:
+    enabled: true
+    requestTimeout: "30s"
+    responseTimeout: "15s"

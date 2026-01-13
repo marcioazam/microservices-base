@@ -1,151 +1,166 @@
-//! Circuit Breaker Property Tests
+//! Property tests for circuit breaker error type.
 //!
-//! Validates state machine correctness.
+//! **Feature: auth-edge-modernization-2025, Property 3: Circuit Breaker Error Type**
+//! **Validates: Requirements 3.5**
 
+use auth_edge::error::{AuthEdgeError, ErrorCode};
 use proptest::prelude::*;
-
-#[derive(Debug, Clone, PartialEq)]
-enum CircuitState { Closed, Open, HalfOpen }
-
-struct CircuitBreaker {
-    state: CircuitState,
-    failure_count: u32,
-    success_count: u32,
-    failure_threshold: u32,
-    success_threshold: u32,
-}
-
-impl CircuitBreaker {
-    fn new(failure_threshold: u32, success_threshold: u32) -> Self {
-        CircuitBreaker {
-            state: CircuitState::Closed,
-            failure_count: 0,
-            success_count: 0,
-            failure_threshold,
-            success_threshold,
-        }
-    }
-
-    fn record_failure(&mut self) {
-        match self.state {
-            CircuitState::Closed => {
-                self.failure_count += 1;
-                if self.failure_count >= self.failure_threshold {
-                    self.state = CircuitState::Open;
-                }
-            }
-            CircuitState::HalfOpen => {
-                self.state = CircuitState::Open;
-                self.success_count = 0;
-            }
-            _ => {}
-        }
-    }
-
-    fn record_success(&mut self) {
-        match self.state {
-            CircuitState::HalfOpen => {
-                self.success_count += 1;
-                if self.success_count >= self.success_threshold {
-                    self.state = CircuitState::Closed;
-                    self.failure_count = 0;
-                    self.success_count = 0;
-                }
-            }
-            CircuitState::Closed => {
-                self.failure_count = 0;
-            }
-            _ => {}
-        }
-    }
-
-    fn transition_to_half_open(&mut self) {
-        if self.state == CircuitState::Open {
-            self.state = CircuitState::HalfOpen;
-            self.success_count = 0;
-        }
-    }
-
-    fn is_available(&self) -> bool {
-        self.state != CircuitState::Open
-    }
-}
+use rust_common::{CircuitBreaker, CircuitBreakerConfig, CircuitState, PlatformError};
+use std::time::Duration;
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    /// Property: Circuit opens after failure threshold
+    /// **Feature: auth-edge-modernization-2025, Property 3: Circuit Breaker Error Type**
+    /// **Validates: Requirements 3.5**
+    ///
+    /// *For any* circuit breaker that transitions to Open state, subsequent requests
+    /// SHALL return `PlatformError::CircuitOpen` with the correct service name.
     #[test]
-    fn prop_circuit_open_fail_fast(failure_threshold in 1u32..10u32) {
-        let mut cb = CircuitBreaker::new(failure_threshold, 3);
-        
-        for _ in 0..failure_threshold {
-            cb.record_failure();
-        }
-        
-        prop_assert_eq!(cb.state, CircuitState::Open);
-        prop_assert!(!cb.is_available(), "Open circuit should not be available");
+    fn circuit_open_returns_correct_error_type(
+        service_name in "[a-zA-Z][a-zA-Z0-9-]{1,30}"
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let config = CircuitBreakerConfig::default()
+                .with_failure_threshold(2)
+                .with_timeout(Duration::from_secs(60));
+            
+            let cb = CircuitBreaker::new(config);
+            
+            // Record failures to open the circuit
+            cb.record_failure().await;
+            cb.record_failure().await;
+            
+            // Verify circuit is open
+            prop_assert_eq!(cb.state().await, CircuitState::Open);
+            
+            // Create the error that would be returned
+            let error = PlatformError::circuit_open(&service_name);
+            let auth_error = AuthEdgeError::Platform(error);
+            
+            // Verify error code is CircuitOpen
+            prop_assert_eq!(auth_error.code(), ErrorCode::CircuitOpen);
+            
+            // Verify error message contains service name
+            let error_string = format!("{}", auth_error);
+            prop_assert!(
+                error_string.contains(&service_name),
+                "Error message '{}' should contain service name '{}'",
+                error_string,
+                service_name
+            );
+            
+            Ok(())
+        })?;
     }
 
-    /// Property: Circuit breaker state machine transitions correctly
+    /// **Feature: auth-edge-modernization-2025, Property 3: Circuit Breaker Error Type**
+    /// **Validates: Requirements 3.5**
+    ///
+    /// *For any* circuit breaker in Open state, allow_request() returns false.
     #[test]
-    fn prop_circuit_breaker_state_machine(
-        failure_threshold in 1u32..10u32,
-        success_threshold in 1u32..5u32,
-        num_failures in 0u32..20u32,
-    ) {
-        let mut cb = CircuitBreaker::new(failure_threshold, success_threshold);
-        
-        prop_assert_eq!(cb.state, CircuitState::Closed);
-        
-        for i in 0..num_failures {
-            cb.record_failure();
-            if i + 1 >= failure_threshold {
-                prop_assert_eq!(cb.state, CircuitState::Open);
-            }
-        }
-        
-        if cb.state == CircuitState::Open {
-            cb.transition_to_half_open();
-            prop_assert_eq!(cb.state, CircuitState::HalfOpen);
+    fn open_circuit_rejects_requests(failure_count in 2u32..10u32) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let config = CircuitBreakerConfig::default()
+                .with_failure_threshold(2)
+                .with_timeout(Duration::from_secs(60));
             
-            for _ in 0..success_threshold {
-                cb.record_success();
+            let cb = CircuitBreaker::new(config);
+            
+            // Record enough failures to open the circuit
+            for _ in 0..failure_count {
+                cb.record_failure().await;
             }
-            prop_assert_eq!(cb.state, CircuitState::Closed);
-        }
+            
+            // Verify circuit is open
+            prop_assert_eq!(cb.state().await, CircuitState::Open);
+            
+            // Verify requests are rejected
+            prop_assert!(!cb.allow_request().await);
+            
+            Ok(())
+        })?;
+    }
+
+    /// **Feature: auth-edge-modernization-2025, Property 3: Circuit Breaker Error Type**
+    /// **Validates: Requirements 3.5**
+    ///
+    /// *For any* circuit breaker, success resets failure count in Closed state.
+    #[test]
+    fn success_resets_failures_in_closed_state(
+        initial_failures in 0u32..4u32
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let config = CircuitBreakerConfig::default()
+                .with_failure_threshold(5);
+            
+            let cb = CircuitBreaker::new(config);
+            
+            // Record some failures (but not enough to open)
+            for _ in 0..initial_failures {
+                cb.record_failure().await;
+            }
+            
+            // Circuit should still be closed
+            prop_assert_eq!(cb.state().await, CircuitState::Closed);
+            
+            // Record a success
+            cb.record_success().await;
+            
+            // Failure count should be reset
+            prop_assert_eq!(cb.failure_count(), 0);
+            
+            Ok(())
+        })?;
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::*;
 
-    #[test]
-    fn test_circuit_breaker_opens() {
-        let mut cb = CircuitBreaker::new(3, 2);
+    #[tokio::test]
+    async fn test_circuit_breaker_state_transitions() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 2,
+            success_threshold: 2,
+            timeout: Duration::from_millis(10),
+            half_open_max_requests: 3,
+        };
         
-        cb.record_failure();
-        cb.record_failure();
-        assert!(cb.is_available());
+        let cb = CircuitBreaker::new(config);
         
-        cb.record_failure();
-        assert!(!cb.is_available());
-        assert_eq!(cb.state, CircuitState::Open);
+        // Initial state is Closed
+        assert_eq!(cb.state().await, CircuitState::Closed);
+        assert!(cb.allow_request().await);
+        
+        // Record failures to open
+        cb.record_failure().await;
+        cb.record_failure().await;
+        assert_eq!(cb.state().await, CircuitState::Open);
+        assert!(!cb.allow_request().await);
+        
+        // Wait for timeout to transition to HalfOpen
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(cb.allow_request().await);
+        assert_eq!(cb.state().await, CircuitState::HalfOpen);
+        
+        // Record successes to close
+        cb.record_success().await;
+        cb.record_success().await;
+        assert_eq!(cb.state().await, CircuitState::Closed);
     }
 
     #[test]
-    fn test_circuit_breaker_closes() {
-        let mut cb = CircuitBreaker::new(1, 2);
+    fn test_circuit_open_error_contains_service_name() {
+        let service = "my-service";
+        let error = PlatformError::circuit_open(service);
+        let auth_error = AuthEdgeError::Platform(error);
         
-        cb.record_failure();
-        assert_eq!(cb.state, CircuitState::Open);
-        
-        cb.transition_to_half_open();
-        assert_eq!(cb.state, CircuitState::HalfOpen);
-        
-        cb.record_success();
-        cb.record_success();
-        assert_eq!(cb.state, CircuitState::Closed);
+        assert_eq!(auth_error.code(), ErrorCode::CircuitOpen);
+        assert!(format!("{}", auth_error).contains(service));
     }
 }

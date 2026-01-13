@@ -1,0 +1,813 @@
+// Copyright 2025 Auth Platform. All rights reserved.
+// MFA Service - Multi-factor authentication operations.
+
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/auth-platform/api/gen/go/auth/v1;authv1";
+option java_package = "com.authplatform.api.auth.v1";
+option java_multiple_files = true;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+
+// MFAService provides multi-factor authentication operations including
+// TOTP, WebAuthn/Passkeys, Push notifications, and backup codes.
+service MFAService {
+  // TOTP Operations
+  
+  // EnrollTOTP initiates TOTP enrollment for a user.
+  rpc EnrollTOTP(EnrollTOTPRequest) returns (EnrollTOTPResponse) {
+    option (google.api.http) = {
+      post: "/v1/mfa/totp/enroll"
+      body: "*"
+    };
+  }
+
+  // VerifyTOTP verifies a TOTP code.
+  rpc VerifyTOTP(VerifyTOTPRequest) returns (VerifyMFAResponse) {
+    option (google.api.http) = {
+      post: "/v1/mfa/totp/verify"
+      body: "*"
+    };
+  }
+
+  // DisableTOTP disables TOTP for a user.
+  rpc DisableTOTP(DisableTOTPRequest) returns (DisableMFAResponse) {
+    option (google.api.http) = {
+      delete: "/v1/mfa/totp/{user_id}"
+    };
+  }
+
+  // WebAuthn/Passkey Operations
+  
+  // BeginWebAuthnRegistration starts WebAuthn credential registration.
+  rpc BeginWebAuthnRegistration(BeginWebAuthnRegistrationRequest) returns (WebAuthnRegistrationOptions) {
+    option (google.api.http) = {
+      post: "/v1/mfa/webauthn/register/begin"
+      body: "*"
+    };
+  }
+
+  // CompleteWebAuthnRegistration completes WebAuthn credential registration.
+  rpc CompleteWebAuthnRegistration(CompleteWebAuthnRegistrationRequest) returns (WebAuthnCredential) {
+    option (google.api.http) = {
+      post: "/v1/mfa/webauthn/register/complete"
+      body: "*"
+    };
+  }
+
+  // BeginWebAuthnAuthentication starts WebAuthn authentication.
+  rpc BeginWebAuthnAuthentication(BeginWebAuthnAuthenticationRequest) returns (WebAuthnAuthenticationOptions) {
+    option (google.api.http) = {
+      post: "/v1/mfa/webauthn/authenticate/begin"
+      body: "*"
+    };
+  }
+
+  // CompleteWebAuthnAuthentication completes WebAuthn authentication.
+  rpc CompleteWebAuthnAuthentication(CompleteWebAuthnAuthenticationRequest) returns (VerifyMFAResponse) {
+    option (google.api.http) = {
+      post: "/v1/mfa/webauthn/authenticate/complete"
+      body: "*"
+    };
+  }
+
+  // ListWebAuthnCredentials lists user's WebAuthn credentials.
+  rpc ListWebAuthnCredentials(ListWebAuthnCredentialsRequest) returns (ListWebAuthnCredentialsResponse) {
+    option (google.api.http) = {
+      get: "/v1/mfa/webauthn/{user_id}/credentials"
+    };
+  }
+
+  // DeleteWebAuthnCredential deletes a WebAuthn credential.
+  rpc DeleteWebAuthnCredential(DeleteWebAuthnCredentialRequest) returns (DisableMFAResponse) {
+    option (google.api.http) = {
+      delete: "/v1/mfa/webauthn/{user_id}/credentials/{credential_id}"
+    };
+  }
+
+  // Push Notification MFA
+  
+  // SendPushChallenge sends a push notification challenge.
+  rpc SendPushChallenge(SendPushChallengeRequest) returns (PushChallengeResponse) {
+    option (google.api.http) = {
+      post: "/v1/mfa/push/send"
+      body: "*"
+    };
+  }
+
+  // CheckPushApproval checks if push challenge was approved.
+  rpc CheckPushApproval(CheckPushApprovalRequest) returns (VerifyMFAResponse) {
+    option (google.api.http) = {
+      get: "/v1/mfa/push/{challenge_id}/status"
+    };
+  }
+
+  // Backup Codes
+  
+  // GenerateBackupCodes generates new backup codes.
+  rpc GenerateBackupCodes(GenerateBackupCodesRequest) returns (BackupCodesResponse) {
+    option (google.api.http) = {
+      post: "/v1/mfa/backup-codes/generate"
+      body: "*"
+    };
+  }
+
+  // VerifyBackupCode verifies and consumes a backup code.
+  rpc VerifyBackupCode(VerifyBackupCodeRequest) returns (VerifyMFAResponse) {
+    option (google.api.http) = {
+      post: "/v1/mfa/backup-codes/verify"
+      body: "*"
+    };
+  }
+
+  // MFA Status
+  
+  // GetMFAStatus returns MFA enrollment status for a user.
+  rpc GetMFAStatus(GetMFAStatusRequest) returns (MFAStatusResponse) {
+    option (google.api.http) = {
+      get: "/v1/mfa/status/{user_id}"
+    };
+  }
+
+  // CAEP Event Streaming
+  
+  // StreamCAEPEvents streams Continuous Access Evaluation Protocol events.
+  rpc StreamCAEPEvents(StreamCAEPEventsRequest) returns (stream CAEPEvent);
+}
+
+
+// MFAMethod enumerates available MFA methods.
+enum MFAMethod {
+  // Unspecified method.
+  MFA_METHOD_UNSPECIFIED = 0;
+  // Time-based One-Time Password.
+  MFA_METHOD_TOTP = 1;
+  // WebAuthn/FIDO2/Passkeys.
+  MFA_METHOD_WEBAUTHN = 2;
+  // Push notification.
+  MFA_METHOD_PUSH = 3;
+  // SMS one-time code.
+  MFA_METHOD_SMS = 4;
+  // Email one-time code.
+  MFA_METHOD_EMAIL = 5;
+  // Backup recovery code.
+  MFA_METHOD_BACKUP_CODE = 6;
+}
+
+// MFAErrorCode enumerates MFA error types.
+enum MFAErrorCode {
+  // Unspecified error.
+  MFA_ERROR_CODE_UNSPECIFIED = 0;
+  // Invalid verification code.
+  MFA_ERROR_CODE_INVALID_CODE = 1;
+  // Code has expired.
+  MFA_ERROR_CODE_EXPIRED = 2;
+  // Code already used.
+  MFA_ERROR_CODE_ALREADY_USED = 3;
+  // User not enrolled in MFA.
+  MFA_ERROR_CODE_NOT_ENROLLED = 4;
+  // Rate limited.
+  MFA_ERROR_CODE_RATE_LIMITED = 5;
+  // Credential not found.
+  MFA_ERROR_CODE_CREDENTIAL_NOT_FOUND = 6;
+  // Challenge not found.
+  MFA_ERROR_CODE_CHALLENGE_NOT_FOUND = 7;
+  // Challenge denied by user.
+  MFA_ERROR_CODE_CHALLENGE_DENIED = 8;
+  // WebAuthn verification failed.
+  MFA_ERROR_CODE_WEBAUTHN_FAILED = 9;
+}
+
+// TOTPAlgorithm enumerates TOTP hash algorithms.
+enum TOTPAlgorithm {
+  // Unspecified, defaults to SHA1.
+  TOTP_ALGORITHM_UNSPECIFIED = 0;
+  // SHA-1 (default, most compatible).
+  TOTP_ALGORITHM_SHA1 = 1;
+  // SHA-256 (more secure).
+  TOTP_ALGORITHM_SHA256 = 2;
+  // SHA-512 (most secure).
+  TOTP_ALGORITHM_SHA512 = 3;
+}
+
+// TOTP Messages
+
+// EnrollTOTPRequest initiates TOTP enrollment.
+message EnrollTOTPRequest {
+  // User ID to enroll.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Issuer name for authenticator app display.
+  string issuer = 2 [(buf.validate.field).string.max_len = 64];
+
+  // Hash algorithm (default: SHA1 for compatibility).
+  TOTPAlgorithm algorithm = 3;
+
+  // Number of digits (6 or 8, default: 6).
+  int32 digits = 4 [(buf.validate.field).int32 = {
+    gte: 6
+    lte: 8
+  }];
+
+  // Time period in seconds (default: 30).
+  int32 period_seconds = 5 [(buf.validate.field).int32 = {
+    gte: 30
+    lte: 60
+  }];
+}
+
+// EnrollTOTPResponse contains TOTP enrollment data.
+message EnrollTOTPResponse {
+  // Base32-encoded secret key.
+  string secret = 1;
+
+  // otpauth:// URI for QR code generation.
+  string provisioning_uri = 2;
+
+  // Base64-encoded QR code image (PNG).
+  string qr_code_base64 = 3;
+
+  // Backup codes generated during enrollment.
+  repeated string backup_codes = 4;
+}
+
+// VerifyTOTPRequest verifies a TOTP code.
+message VerifyTOTPRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // TOTP code to verify.
+  string code = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 6
+      max_len: 8
+      pattern: "^[0-9]+$"
+    },
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// VerifyMFAResponse is the common response for MFA verification.
+message VerifyMFAResponse {
+  // Whether verification succeeded.
+  bool valid = 1;
+
+  // Error code if verification failed.
+  MFAErrorCode error_code = 2;
+
+  // Human-readable error message.
+  string error_message = 3;
+
+  // Timestamp of successful verification.
+  google.protobuf.Timestamp verified_at = 4;
+
+  // Remaining attempts before lockout.
+  optional int32 remaining_attempts = 5;
+}
+
+// DisableTOTPRequest disables TOTP for a user.
+message DisableTOTPRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// DisableMFAResponse confirms MFA method was disabled.
+message DisableMFAResponse {
+  // Whether the operation succeeded.
+  bool success = 1;
+}
+
+
+// WebAuthn/Passkey Messages
+
+// AuthenticatorAttachment specifies authenticator type.
+enum AuthenticatorAttachment {
+  // No preference.
+  AUTHENTICATOR_ATTACHMENT_UNSPECIFIED = 0;
+  // Platform authenticator (built-in, e.g., Touch ID, Windows Hello).
+  AUTHENTICATOR_ATTACHMENT_PLATFORM = 1;
+  // Cross-platform authenticator (e.g., security key).
+  AUTHENTICATOR_ATTACHMENT_CROSS_PLATFORM = 2;
+}
+
+// ResidentKeyRequirement specifies discoverable credential requirement.
+enum ResidentKeyRequirement {
+  // Unspecified.
+  RESIDENT_KEY_REQUIREMENT_UNSPECIFIED = 0;
+  // Discouraged (not a passkey).
+  RESIDENT_KEY_REQUIREMENT_DISCOURAGED = 1;
+  // Preferred (passkey if supported).
+  RESIDENT_KEY_REQUIREMENT_PREFERRED = 2;
+  // Required (must be a passkey).
+  RESIDENT_KEY_REQUIREMENT_REQUIRED = 3;
+}
+
+// UserVerificationRequirement specifies user verification requirement.
+enum UserVerificationRequirement {
+  // Unspecified.
+  USER_VERIFICATION_REQUIREMENT_UNSPECIFIED = 0;
+  // Required (biometric/PIN must be used).
+  USER_VERIFICATION_REQUIREMENT_REQUIRED = 1;
+  // Preferred (use if available).
+  USER_VERIFICATION_REQUIREMENT_PREFERRED = 2;
+  // Discouraged (skip if possible).
+  USER_VERIFICATION_REQUIREMENT_DISCOURAGED = 3;
+}
+
+// AttestationConveyance specifies attestation preference.
+enum AttestationConveyance {
+  // Unspecified.
+  ATTESTATION_CONVEYANCE_UNSPECIFIED = 0;
+  // No attestation.
+  ATTESTATION_CONVEYANCE_NONE = 1;
+  // Indirect attestation.
+  ATTESTATION_CONVEYANCE_INDIRECT = 2;
+  // Direct attestation.
+  ATTESTATION_CONVEYANCE_DIRECT = 3;
+  // Enterprise attestation.
+  ATTESTATION_CONVEYANCE_ENTERPRISE = 4;
+}
+
+// BeginWebAuthnRegistrationRequest starts credential registration.
+message BeginWebAuthnRegistrationRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Username for display.
+  string user_name = 2 [(buf.validate.field).string.max_len = 64];
+
+  // Display name for authenticator.
+  string display_name = 3 [(buf.validate.field).string.max_len = 64];
+
+  // Authenticator selection criteria.
+  AuthenticatorSelection authenticator_selection = 4;
+
+  // Attestation preference.
+  AttestationConveyance attestation = 5;
+}
+
+// AuthenticatorSelection specifies authenticator requirements.
+message AuthenticatorSelection {
+  // Authenticator attachment preference.
+  AuthenticatorAttachment authenticator_attachment = 1;
+
+  // Resident key (passkey) requirement.
+  ResidentKeyRequirement resident_key = 2;
+
+  // User verification requirement.
+  UserVerificationRequirement user_verification = 3;
+}
+
+// WebAuthnRegistrationOptions contains registration challenge.
+message WebAuthnRegistrationOptions {
+  // Challenge bytes (base64url encoded in JSON).
+  bytes challenge = 1;
+
+  // Relying party information.
+  RelyingParty rp = 2;
+
+  // User information.
+  WebAuthnUser user = 3;
+
+  // Supported public key algorithms.
+  repeated PublicKeyCredentialParameters pub_key_cred_params = 4;
+
+  // Timeout in milliseconds.
+  int64 timeout_ms = 5;
+
+  // Credentials to exclude (already registered).
+  repeated PublicKeyCredentialDescriptor exclude_credentials = 6;
+
+  // Authenticator selection criteria.
+  AuthenticatorSelection authenticator_selection = 7;
+
+  // Attestation preference.
+  AttestationConveyance attestation = 8;
+
+  // Hints for hybrid transport (passkey sync).
+  repeated string hints = 9;
+}
+
+// RelyingParty identifies the relying party.
+message RelyingParty {
+  // RP ID (domain).
+  string id = 1;
+
+  // RP display name.
+  string name = 2;
+}
+
+// WebAuthnUser identifies the user for WebAuthn.
+message WebAuthnUser {
+  // User handle (opaque identifier).
+  bytes id = 1;
+
+  // Username.
+  string name = 2;
+
+  // Display name.
+  string display_name = 3;
+}
+
+// PublicKeyCredentialParameters specifies supported algorithms.
+message PublicKeyCredentialParameters {
+  // Credential type (always "public-key").
+  string type = 1;
+
+  // COSE algorithm identifier (-7=ES256, -257=RS256, -8=EdDSA).
+  int32 alg = 2;
+}
+
+// PublicKeyCredentialDescriptor identifies a credential.
+message PublicKeyCredentialDescriptor {
+  // Credential type.
+  string type = 1;
+
+  // Credential ID.
+  bytes id = 2;
+
+  // Supported transports: usb, nfc, ble, internal, hybrid.
+  repeated string transports = 3;
+}
+
+// CompleteWebAuthnRegistrationRequest completes registration.
+message CompleteWebAuthnRegistrationRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Credential ID from authenticator.
+  bytes credential_id = 2 [(buf.validate.field).required = true];
+
+  // Attestation object from authenticator.
+  bytes attestation_object = 3 [(buf.validate.field).required = true];
+
+  // Client data JSON.
+  bytes client_data_json = 4 [(buf.validate.field).required = true];
+
+  // User-friendly device name.
+  string device_name = 5;
+
+  // Supported transports.
+  repeated string transports = 6;
+}
+
+// WebAuthnCredential represents a registered credential.
+message WebAuthnCredential {
+  // Credential ID (base64url encoded).
+  string credential_id = 1;
+
+  // User-friendly device name.
+  string device_name = 2;
+
+  // When credential was created.
+  google.protobuf.Timestamp created_at = 3;
+
+  // When credential was last used.
+  google.protobuf.Timestamp last_used_at = 4;
+
+  // Supported transports.
+  repeated string transports = 5;
+
+  // Whether credential is backup eligible (BE flag).
+  bool backup_eligible = 6;
+
+  // Whether credential is currently backed up (BS flag).
+  bool backup_state = 7;
+
+  // AAGUID of the authenticator.
+  string aaguid = 8;
+}
+
+// BeginWebAuthnAuthenticationRequest starts authentication.
+message BeginWebAuthnAuthenticationRequest {
+  // User ID (optional for discoverable credentials).
+  string user_id = 1 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Enable conditional UI (passkey autofill).
+  bool conditional_ui = 2;
+}
+
+// WebAuthnAuthenticationOptions contains authentication challenge.
+message WebAuthnAuthenticationOptions {
+  // Challenge bytes.
+  bytes challenge = 1;
+
+  // Timeout in milliseconds.
+  int64 timeout_ms = 2;
+
+  // RP ID.
+  string rp_id = 3;
+
+  // Allowed credentials (empty for discoverable).
+  repeated PublicKeyCredentialDescriptor allow_credentials = 4;
+
+  // User verification requirement.
+  UserVerificationRequirement user_verification = 5;
+}
+
+// CompleteWebAuthnAuthenticationRequest completes authentication.
+message CompleteWebAuthnAuthenticationRequest {
+  // User ID.
+  string user_id = 1 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Credential ID used.
+  bytes credential_id = 2 [(buf.validate.field).required = true];
+
+  // Authenticator data.
+  bytes authenticator_data = 3 [(buf.validate.field).required = true];
+
+  // Client data JSON.
+  bytes client_data_json = 4 [(buf.validate.field).required = true];
+
+  // Signature.
+  bytes signature = 5 [(buf.validate.field).required = true];
+
+  // User handle (for discoverable credentials).
+  bytes user_handle = 6;
+}
+
+// ListWebAuthnCredentialsRequest lists user's credentials.
+message ListWebAuthnCredentialsRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// ListWebAuthnCredentialsResponse contains credentials list.
+message ListWebAuthnCredentialsResponse {
+  // User's WebAuthn credentials.
+  repeated WebAuthnCredential credentials = 1;
+}
+
+// DeleteWebAuthnCredentialRequest deletes a credential.
+message DeleteWebAuthnCredentialRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Credential ID to delete.
+  string credential_id = 2 [(buf.validate.field).required = true];
+}
+
+
+// Push MFA Messages
+
+// SendPushChallengeRequest sends a push notification.
+message SendPushChallengeRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Target device ID (optional, sends to all if empty).
+  string device_id = 2;
+
+  // Notification title.
+  string title = 3 [(buf.validate.field).string.max_len = 100];
+
+  // Notification body.
+  string body = 4 [(buf.validate.field).string.max_len = 500];
+
+  // Context information for the push.
+  PushContext context = 5;
+
+  // Timeout in seconds (30-300).
+  int32 timeout_seconds = 6 [(buf.validate.field).int32 = {
+    gte: 30
+    lte: 300
+  }];
+}
+
+// PushContext provides context for the authentication request.
+message PushContext {
+  // IP address of the request.
+  string ip_address = 1;
+
+  // Geographic location.
+  string location = 2;
+
+  // Device information.
+  string device_info = 3;
+
+  // Action being authenticated.
+  string action = 4;
+
+  // Application name.
+  string application = 5;
+
+  // Timestamp of the request.
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+// PushChallengeResponse contains challenge information.
+message PushChallengeResponse {
+  // Challenge ID for status checking.
+  string challenge_id = 1;
+
+  // Whether push was sent successfully.
+  bool sent = 2;
+
+  // Error message if send failed.
+  string error_message = 3;
+
+  // Expiration time of the challenge.
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+// CheckPushApprovalRequest checks challenge status.
+message CheckPushApprovalRequest {
+  // Challenge ID to check.
+  string challenge_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// Backup Codes Messages
+
+// GenerateBackupCodesRequest generates new backup codes.
+message GenerateBackupCodesRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Number of codes to generate (8-16).
+  int32 count = 2 [(buf.validate.field).int32 = {
+    gte: 8
+    lte: 16
+  }];
+}
+
+// BackupCodesResponse contains generated codes.
+message BackupCodesResponse {
+  // Generated backup codes (show once, then hash).
+  repeated string codes = 1;
+
+  // When codes were generated.
+  google.protobuf.Timestamp generated_at = 2;
+
+  // Number of codes generated.
+  int32 count = 3;
+}
+
+// VerifyBackupCodeRequest verifies a backup code.
+message VerifyBackupCodeRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Backup code to verify.
+  string code = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 8
+      max_len: 16
+    },
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// MFA Status Messages
+
+// GetMFAStatusRequest gets MFA status for a user.
+message GetMFAStatusRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// MFAStatusResponse contains MFA enrollment status.
+message MFAStatusResponse {
+  // Whether any MFA method is enabled.
+  bool mfa_enabled = 1;
+
+  // Enrolled MFA methods.
+  repeated MFAMethod enrolled_methods = 2;
+
+  // Preferred MFA method.
+  MFAMethod preferred_method = 3;
+
+  // Number of backup codes remaining.
+  int32 backup_codes_remaining = 4;
+
+  // Whether TOTP is enrolled.
+  bool totp_enrolled = 5;
+
+  // Number of WebAuthn credentials.
+  int32 webauthn_credential_count = 6;
+
+  // Whether push is enrolled.
+  bool push_enrolled = 7;
+}
+
+// CAEP (Continuous Access Evaluation Protocol) Messages
+
+// StreamCAEPEventsRequest subscribes to CAEP events.
+message StreamCAEPEventsRequest {
+  // User ID to watch (optional, admin can watch all).
+  string user_id = 1 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Event types to subscribe to.
+  repeated CAEPEventType event_types = 2;
+}
+
+// CAEPEvent represents a security event.
+message CAEPEvent {
+  // Unique event ID.
+  string event_id = 1;
+
+  // Event type.
+  CAEPEventType event_type = 2;
+
+  // Subject of the event (user ID or session ID).
+  string subject = 3;
+
+  // Event timestamp.
+  google.protobuf.Timestamp timestamp = 4;
+
+  // Event-specific claims.
+  map<string, string> claims = 5;
+
+  // Issuer of the event.
+  string issuer = 6;
+
+  // Audience for the event.
+  repeated string audience = 7;
+}
+
+// CAEPEventType enumerates CAEP event types.
+enum CAEPEventType {
+  // Unspecified event type.
+  CAEP_EVENT_TYPE_UNSPECIFIED = 0;
+  // Session was revoked.
+  CAEP_EVENT_TYPE_SESSION_REVOKED = 1;
+  // Token claims changed.
+  CAEP_EVENT_TYPE_TOKEN_CLAIMS_CHANGE = 2;
+  // Credential was changed.
+  CAEP_EVENT_TYPE_CREDENTIAL_CHANGE = 3;
+  // Assurance level changed.
+  CAEP_EVENT_TYPE_ASSURANCE_LEVEL_CHANGE = 4;
+  // Device compliance changed.
+  CAEP_EVENT_TYPE_DEVICE_COMPLIANCE_CHANGE = 5;
+  // Account was disabled.
+  CAEP_EVENT_TYPE_ACCOUNT_DISABLED = 6;
+  // Account was enabled.
+  CAEP_EVENT_TYPE_ACCOUNT_ENABLED = 7;
+  // Credential was added.
+  CAEP_EVENT_TYPE_CREDENTIAL_ADDED = 8;
+  // Credential was removed.
+  CAEP_EVENT_TYPE_CREDENTIAL_REMOVED = 9;
+}

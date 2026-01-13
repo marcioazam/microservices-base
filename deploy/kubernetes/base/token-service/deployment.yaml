@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: token-service
+  labels:
+    app: token-service
+    app.kubernetes.io/name: token-service
+    app.kubernetes.io/component: auth
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: token-service
+  template:
+    metadata:
+      labels:
+        app: token-service
+        app.kubernetes.io/name: token-service
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      
+      serviceAccountName: token-service
+      automountServiceAccountToken: false
+      
+      containers:
+        - name: token-service
+          image: auth-platform/token-service:latest
+          imagePullPolicy: IfNotPresent
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          ports:
+            - name: grpc
+              containerPort: 8081
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          
+          env:
+            - name: SERVICE_NAME
+              value: token-service
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: token-service-secrets
+                  key: jwt-secret
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+          
+          livenessProbe:
+            grpc:
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          
+          readinessProbe:
+            grpc:
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          
+          startupProbe:
+            grpc:
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: token-service
+                topologyKey: kubernetes.io/hostname

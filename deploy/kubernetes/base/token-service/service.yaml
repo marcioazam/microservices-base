@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: token-service
+  labels:
+    app: token-service
+    app.kubernetes.io/name: token-service
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: token-service
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: grpc
+    - name: metrics
+      port: 9091
+      targetPort: metrics

@@ -1,0 +1,45 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "resilience-operator.fullname" . }}-manager-role
+  labels:
+    {{- include "resilience-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["resilience.auth-platform.github.com"]
+    resources: ["resiliencepolicies"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["resilience.auth-platform.github.com"]
+    resources: ["resiliencepolicies/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["resilience.auth-platform.github.com"]
+    resources: ["resiliencepolicies/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "grpcroutes"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "resilience-operator.fullname" . }}-manager-rolebinding
+  labels:
+    {{- include "resilience-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "resilience-operator.fullname" . }}-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "resilience-operator.serviceAccountName" . }}
+    namespace: {{ include "resilience-operator.namespace" . }}
+{{- end }}

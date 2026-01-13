@@ -1,24 +1,38 @@
 [package]
 name = "auth-vault-client"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "HashiCorp Vault client for Auth Platform"
-license = "MIT"
 
 [dependencies]
-async-trait = "0.1"
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1"
-secrecy = { version = "0.8", features = ["serde"] }
-zeroize = { version = "1.7", features = ["derive"] }
-base64 = "0.21"
+# Workspace dependencies
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+aes-gcm.workspace = true
+rand.workspace = true
+
+# Local dependencies
+rust-common = { path = "../rust-common" }
+
+# Vault-specific
+secrecy = { version = "0.10", features = ["serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
-proptest = "1.4"
-tokio-test = "0.4"
-wiremock = "0.5"
+proptest.workspace = true
+tokio-test.workspace = true
+wiremock = "0.6"
+
+[lints]
+workspace = true

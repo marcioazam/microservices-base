@@ -1,97 +1,15 @@
-//! Property-based tests for Pact Contract Testing
-//! **Feature: auth-platform-2025-enhancements**
+//! Property-based tests for Pact library.
+//!
+//! Tests validate:
+//! - Property 12: Contract Serialization Round-Trip
+//! - Property 13: Contract Version Git Commit Match
 
+use auth_pact::{
+    CanIDeployResult, Contract, ContractMetadata, Interaction, MatrixEntry, Participant,
+    PactSpecification, Request, Response, ContractVersion, VerificationResult,
+};
 use proptest::prelude::*;
 use std::collections::HashMap;
-
-/// Mock types for testing Pact properties
-mod test_types {
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct Contract {
-        pub consumer: Participant,
-        pub provider: Participant,
-        pub interactions: Vec<Interaction>,
-        pub metadata: ContractMetadata,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct Participant {
-        pub name: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct Interaction {
-        pub description: String,
-        pub provider_state: Option<String>,
-        pub request: Request,
-        pub response: Response,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct Request {
-        pub method: String,
-        pub path: String,
-        pub headers: HashMap<String, String>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct Response {
-        pub status: u16,
-        pub headers: HashMap<String, String>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct ContractMetadata {
-        pub pact_specification: PactSpecification,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct PactSpecification {
-        pub version: String,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct ContractVersion {
-        pub consumer: String,
-        pub provider: String,
-        pub version: String,
-        pub git_commit: String,
-        pub branch: String,
-        pub tags: Vec<String>,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct VerificationResult {
-        pub success: bool,
-        pub provider: String,
-        pub consumer: String,
-        pub consumer_version: String,
-        pub provider_version: String,
-        pub verified_at: String,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct CanIDeployResult {
-        pub ok: bool,
-        pub reason: String,
-        pub matrix: Vec<MatrixEntry>,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct MatrixEntry {
-        pub consumer: String,
-        pub consumer_version: String,
-        pub provider: String,
-        pub provider_version: String,
-        pub success: bool,
-    }
-
-    use std::collections::HashMap;
-}
-
-use test_types::*;
 
 // Strategy for generating service names
 fn service_name_strategy() -> impl Strategy<Value = String> {
@@ -133,114 +51,54 @@ fn contract_version_strategy() -> impl Strategy<Value = ContractVersion> {
         })
 }
 
+// Strategy for generating HTTP methods
+fn http_method_strategy() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just("GET".to_string()),
+        Just("POST".to_string()),
+        Just("PUT".to_string()),
+        Just("DELETE".to_string()),
+        Just("PATCH".to_string()),
+    ]
+}
+
+// Strategy for generating paths
+fn path_strategy() -> impl Strategy<Value = String> {
+    "/[a-z][a-z0-9/-]{2,30}"
+}
+
 proptest! {
-    /// **Property 7: Contract Verification Pipeline**
-    /// *For any* provider service modification, the CI pipeline SHALL verify 
-    /// against all consumer contracts before allowing deployment, blocking on 
-    /// verification failure.
-    /// **Validates: Requirements 5.2, 6.2, 6.3**
-    #[test]
-    fn prop_contract_verification_blocks_on_failure(
-        consumer in service_name_strategy(),
-        provider in service_name_strategy(),
-        verification_success in proptest::bool::ANY,
-    ) {
-        let result = VerificationResult {
-            success: verification_success,
-            provider: provider.clone(),
-            consumer: consumer.clone(),
-            consumer_version: "1.0.0".to_string(),
-            provider_version: "2.0.0".to_string(),
-            verified_at: "2025-01-15T00:00:00Z".to_string(),
-        };
+    #![proptest_config(ProptestConfig::with_cases(100))]
 
-        // can-i-deploy should return false if verification failed
-        let can_deploy = result.success;
-
-        if !verification_success {
-            prop_assert!(!can_deploy,
-                "Deployment should be blocked when verification fails");
-        }
-    }
-
-    /// **Property 8: Contract Storage and Versioning**
-    /// *For any* generated contract, the Pact Broker SHALL store it with version 
-    /// tag matching the git commit SHA, enabling traceability.
-    /// **Validates: Requirements 5.4, 6.4, 6.5**
-    #[test]
-    fn prop_contract_version_matches_git_commit(
-        contract_version in contract_version_strategy(),
-    ) {
-        // Version tags should include git commit
-        prop_assert!(
-            contract_version.tags.iter().any(|t| t == &contract_version.git_commit),
-            "Contract tags should include git commit SHA"
-        );
-
-        // Git commit should be 40 hex characters
-        prop_assert_eq!(
-            contract_version.git_commit.len(),
-            40,
-            "Git commit SHA should be 40 characters"
-        );
-
-        // All characters should be hex
-        prop_assert!(
-            contract_version.git_commit.chars().all(|c| c.is_ascii_hexdigit()),
-            "Git commit SHA should be hexadecimal"
-        );
-    }
-
-    /// Test can-i-deploy matrix evaluation
-    /// Requirements: 6.2, 6.3
-    #[test]
-    fn prop_can_i_deploy_requires_all_verified(
-        num_consumers in 1usize..5,
-        all_verified in proptest::bool::ANY,
-    ) {
-        let matrix: Vec<MatrixEntry> = (0..num_consumers)
-            .map(|i| MatrixEntry {
-                consumer: format!("consumer-{}", i),
-                consumer_version: "1.0.0".to_string(),
-                provider: "token-service".to_string(),
-                provider_version: "2.0.0".to_string(),
-                success: all_verified,
-            })
-            .collect();
-
-        let can_deploy = matrix.iter().all(|e| e.success);
-
-        if all_verified {
-            prop_assert!(can_deploy, "Should allow deploy when all verified");
-        } else {
-            prop_assert!(!can_deploy, "Should block deploy when any unverified");
-        }
-    }
-
-    /// Test contract serialization roundtrip
+    /// **Property 12: Contract Serialization Round-Trip**
+    /// *For any* generated contract, serialization to JSON and deserialization
+    /// back SHALL produce an identical object.
+    /// **Validates: Requirements 12.1**
     #[test]
     fn prop_contract_serialization_roundtrip(
         consumer in service_name_strategy(),
         provider in service_name_strategy(),
+        method in http_method_strategy(),
+        path in path_strategy(),
     ) {
         let contract = Contract {
-            consumer: Participant { name: consumer.clone() },
-            provider: Participant { name: provider.clone() },
-            interactions: vec![
-                Interaction {
-                    description: "test interaction".to_string(),
-                    provider_state: Some("test state".to_string()),
-                    request: Request {
-                        method: "POST".to_string(),
-                        path: "/test".to_string(),
-                        headers: HashMap::new(),
-                    },
-                    response: Response {
-                        status: 200,
-                        headers: HashMap::new(),
-                    },
-                }
-            ],
+            consumer: Participant::new(&consumer),
+            provider: Participant::new(&provider),
+            interactions: vec![Interaction {
+                description: "test interaction".to_string(),
+                provider_state: Some("test state".to_string()),
+                request: Request {
+                    method,
+                    path,
+                    headers: HashMap::new(),
+                    body: None,
+                },
+                response: Response {
+                    status: 200,
+                    headers: HashMap::new(),
+                    body: None,
+                },
+            }],
             metadata: ContractMetadata {
                 pact_specification: PactSpecification {
                     version: "4.0".to_string(),
@@ -248,18 +106,89 @@ proptest! {
             },
         };
 
-        // Serialize to JSON
         let json = serde_json::to_string(&contract).unwrap();
-
-        // Deserialize back
         let deserialized: Contract = serde_json::from_str(&json).unwrap();
 
         prop_assert_eq!(contract, deserialized,
             "Contract should survive serialization roundtrip");
     }
+
+    /// **Property 13: Contract Version Git Commit Match**
+    /// *For any* generated contract, the Pact Broker SHALL store it with version
+    /// tag matching the git commit SHA, enabling traceability.
+    /// **Validates: Requirements 12.2**
+    #[test]
+    fn prop_contract_version_matches_git_commit(
+        contract_version in contract_version_strategy(),
+    ) {
+        prop_assert!(
+            contract_version.tags_include_commit(),
+            "Contract tags should include git commit SHA"
+        );
+
+        prop_assert!(
+            contract_version.has_valid_git_commit(),
+            "Git commit SHA should be valid (40 hex chars)"
+        );
+
+        prop_assert_eq!(
+            contract_version.git_commit.len(),
+            40,
+            "Git commit SHA should be 40 characters"
+        );
+
+        prop_assert!(
+            contract_version.git_commit.chars().all(|c| c.is_ascii_hexdigit()),
+            "Git commit SHA should be hexadecimal"
+        );
+    }
+
+    /// Property: can-i-deploy requires all verified
+    #[test]
+    fn prop_can_i_deploy_requires_all_verified(
+        num_consumers in 1usize..5,
+        all_verified in proptest::bool::ANY,
+    ) {
+        let matrix: Vec<MatrixEntry> = (0..num_consumers)
+            .map(|i| MatrixEntry::new(
+                format!("consumer-{i}"),
+                "1.0.0",
+                "token-service",
+                "2.0.0",
+                all_verified,
+            ))
+            .collect();
+
+        let result = CanIDeployResult::from_matrix(matrix);
+
+        if all_verified {
+            prop_assert!(result.can_deploy(), "Should allow deploy when all verified");
+        } else {
+            prop_assert!(!result.can_deploy(), "Should block deploy when any unverified");
+        }
+    }
+
+    /// Property: Verification blocks deployment on failure
+    #[test]
+    fn prop_verification_blocks_on_failure(
+        consumer in service_name_strategy(),
+        provider in service_name_strategy(),
+        success in proptest::bool::ANY,
+    ) {
+        let result = VerificationResult {
+            success,
+            provider,
+            consumer,
+            consumer_version: "1.0.0".to_string(),
+            provider_version: "2.0.0".to_string(),
+            verified_at: "2025-01-15T00:00:00Z".to_string(),
+        };
+
+        prop_assert_eq!(result.can_deploy(), success,
+            "can_deploy should match verification success");
+    }
 }
 
-/// Test webhook triggering on contract publish
 #[test]
 fn test_webhook_trigger_on_publish() {
     let contract_version = ContractVersion {
@@ -268,57 +197,28 @@ fn test_webhook_trigger_on_publish() {
         version: "1.0.0".to_string(),
         git_commit: "abc123def456789012345678901234567890abcd".to_string(),
         branch: "main".to_string(),
-        tags: vec!["main".to_string()],
+        tags: vec!["main".to_string(), "abc123def456789012345678901234567890abcd".to_string()],
     };
 
-    // Webhook should be triggered for new contract content
-    let should_trigger_webhook = true; // contract_content_changed event
-
-    assert!(should_trigger_webhook);
-    assert_eq!(contract_version.git_commit.len(), 40);
+    assert!(contract_version.has_valid_git_commit());
+    assert!(contract_version.tags_include_commit());
 }
 
-/// Test deployment matrix evaluation
 #[test]
 fn test_deployment_matrix() {
     let matrix = vec![
-        MatrixEntry {
-            consumer: "auth-edge-service".to_string(),
-            consumer_version: "1.0.0".to_string(),
-            provider: "token-service".to_string(),
-            provider_version: "2.0.0".to_string(),
-            success: true,
-        },
-        MatrixEntry {
-            consumer: "session-identity-core".to_string(),
-            consumer_version: "1.0.0".to_string(),
-            provider: "token-service".to_string(),
-            provider_version: "2.0.0".to_string(),
-            success: true,
-        },
+        MatrixEntry::new("auth-edge", "1.0.0", "token-service", "2.0.0", true),
+        MatrixEntry::new("session-core", "1.0.0", "token-service", "2.0.0", true),
     ];
 
-    let can_deploy = matrix.iter().all(|e| e.success);
-    assert!(can_deploy);
+    let result = CanIDeployResult::from_matrix(matrix);
+    assert!(result.can_deploy());
 
-    // With one failure
     let matrix_with_failure = vec![
-        MatrixEntry {
-            consumer: "auth-edge-service".to_string(),
-            consumer_version: "1.0.0".to_string(),
-            provider: "token-service".to_string(),
-            provider_version: "2.0.0".to_string(),
-            success: true,
-        },
-        MatrixEntry {
-            consumer: "session-identity-core".to_string(),
-            consumer_version: "1.0.0".to_string(),
-            provider: "token-service".to_string(),
-            provider_version: "2.0.0".to_string(),
-            success: false, // Verification failed
-        },
+        MatrixEntry::new("auth-edge", "1.0.0", "token-service", "2.0.0", true),
+        MatrixEntry::new("session-core", "1.0.0", "token-service", "2.0.0", false),
     ];
 
-    let can_deploy_with_failure = matrix_with_failure.iter().all(|e| e.success);
-    assert!(!can_deploy_with_failure);
+    let result = CanIDeployResult::from_matrix(matrix_with_failure);
+    assert!(!result.can_deploy());
 }

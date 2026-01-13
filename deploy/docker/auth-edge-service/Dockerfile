@@ -1,5 +1,6 @@
 # Auth Edge Service - Rust Multi-Stage Build
 # Optimized for production with minimal attack surface
+# Build context: repository root (../../)
 
 # ============================================
 # Stage 1: Build Environment
@@ -18,8 +19,8 @@ RUN apk add --no-cache \
 WORKDIR /build
 
 # Copy manifests first for dependency caching
-COPY auth/auth-edge-service/Cargo.toml auth/auth-edge-service/Cargo.lock ./
-COPY proto/ ../proto/
+COPY services/auth-edge/Cargo.toml services/auth-edge/Cargo.lock ./
+COPY api/proto/ ../proto/
 
 # Create dummy main.rs for dependency compilation
 RUN mkdir src && echo "fn main() {}" > src/main.rs
@@ -28,7 +29,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release --locked && rm -rf src
 
 # Copy actual source code
-COPY auth/auth-edge-service/src ./src
+COPY services/auth-edge/src ./src
 
 # Build the application
 RUN touch src/main.rs && \

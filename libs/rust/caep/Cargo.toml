@@ -1,23 +1,46 @@
 [package]
 name = "auth-caep"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "CAEP (Continuous Access Evaluation Protocol) implementation for Auth Platform"
-license = "Proprietary"
 
 [dependencies]
-async-trait = "0.1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-jsonwebtoken = "9.0"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
-thiserror = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
-tracing = "0.1"
-base64 = "0.21"
+# Internal dependencies
+rust-common = { path = "../rust-common" }
+
+# Error handling
+thiserror.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# JWT
+jsonwebtoken.workspace = true
+
+# Time
+chrono.workspace = true
+
+# Async runtime
+tokio.workspace = true
+
+# HTTP client
+reqwest.workspace = true
+
+# Observability
+tracing.workspace = true
+
+# Utilities
+uuid.workspace = true
+base64.workspace = true
 
 [dev-dependencies]
-proptest = "1.4"
-tokio-test = "0.4"
+proptest.workspace = true
+tokio-test.workspace = true
+test-utils = { path = "../test-utils" }
+
+[lints]
+workspace = true

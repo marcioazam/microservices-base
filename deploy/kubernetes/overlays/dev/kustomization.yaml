@@ -1,0 +1,74 @@
+# Development Environment Overlay
+# Kustomize configuration for dev environment
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: auth-system-dev
+
+namePrefix: dev-
+
+labels:
+  - pairs:
+      environment: development
+      tier: dev
+    includeSelectors: false
+
+resources:
+  - ../../base
+
+# Development-specific patches
+patches:
+  # Reduce replicas for dev
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=auth-platform"
+
+  # Enable debug logging
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: LOG_LEVEL
+          value: debug
+    target:
+      kind: Deployment
+
+# Development ConfigMap
+configMapGenerator:
+  - name: auth-platform-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=debug
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+# Development resource limits (lower)
+replicas:
+  - name: auth-edge-service
+    count: 1
+  - name: token-service
+    count: 1
+  - name: session-identity-core
+    count: 1
+  - name: iam-policy-service
+    count: 1
+  - name: mfa-service
+    count: 1
+
+images:
+  - name: auth-platform/auth-edge-service
+    newTag: dev
+  - name: auth-platform/token-service
+    newTag: dev
+  - name: auth-platform/session-identity-core
+    newTag: dev
+  - name: auth-platform/iam-policy-service
+    newTag: dev
+  - name: auth-platform/mfa-service
+    newTag: dev

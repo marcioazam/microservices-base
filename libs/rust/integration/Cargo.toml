@@ -1,0 +1,31 @@
+[package]
+name = "auth-integration-tests"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Integration tests for Auth Platform Rust libraries"
+publish = false
+
+[dependencies]
+# Local dependencies
+rust-common = { path = "../rust-common" }
+auth-caep = { path = "../caep" }
+auth-vault-client = { path = "../vault" }
+auth-linkerd = { path = "../linkerd" }
+auth-pact = { path = "../pact" }
+test-utils = { path = "../test-utils" }
+
+# Workspace dependencies
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tokio-test.workspace = true
+
+[lints]
+workspace = true

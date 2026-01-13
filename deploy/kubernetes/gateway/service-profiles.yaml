@@ -1,0 +1,151 @@
+# Linkerd ServiceProfiles - Circuit Breaker and Retry Configuration
+# Defines per-route retry budgets and failure detection
+
+---
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: auth-edge-service.auth-system.svc.cluster.local
+  namespace: auth-system
+spec:
+  routes:
+    - name: "POST /auth/login"
+      condition:
+        method: POST
+        pathRegex: "/auth/login"
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+      timeout: 30s
+      isRetryable: false  # Login should not be retried
+    - name: "GET /health"
+      condition:
+        method: GET
+        pathRegex: "/health"
+      timeout: 5s
+      isRetryable: true
+  retryBudget:
+    retryRatio: 0.2
+    minRetriesPerSecond: 10
+    ttl: 10s
+
+---
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: token-service.auth-system.svc.cluster.local
+  namespace: auth-system
+spec:
+  routes:
+    - name: "POST /token/issue"
+      condition:
+        method: POST
+        pathRegex: "/token/issue"
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+      timeout: 10s
+      isRetryable: false
+    - name: "POST /token/validate"
+      condition:
+        method: POST
+        pathRegex: "/token/validate"
+      timeout: 5s
+      isRetryable: true
+    - name: "GET /jwks"
+      condition:
+        method: GET
+        pathRegex: "/.well-known/jwks.json"
+      timeout: 5s
+      isRetryable: true
+  retryBudget:
+    retryRatio: 0.2
+    minRetriesPerSecond: 10
+    ttl: 10s
+
+---
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: session-identity-core.auth-system.svc.cluster.local
+  namespace: auth-system
+spec:
+  routes:
+    - name: "POST /session/create"
+      condition:
+        method: POST
+        pathRegex: "/session/create"
+      timeout: 15s
+      isRetryable: false
+    - name: "GET /session/validate"
+      condition:
+        method: GET
+        pathRegex: "/session/.*"
+      timeout: 5s
+      isRetryable: true
+    - name: "DELETE /session"
+      condition:
+        method: DELETE
+        pathRegex: "/session/.*"
+      timeout: 10s
+      isRetryable: false
+  retryBudget:
+    retryRatio: 0.2
+    minRetriesPerSecond: 10
+    ttl: 10s
+
+---
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: iam-policy-service.auth-system.svc.cluster.local
+  namespace: auth-system
+spec:
+  routes:
+    - name: "POST /policy/evaluate"
+      condition:
+        method: POST
+        pathRegex: "/policy/evaluate"
+      timeout: 10s
+      isRetryable: true
+    - name: "GET /policy"
+      condition:
+        method: GET
+        pathRegex: "/policy/.*"
+      timeout: 5s
+      isRetryable: true
+  retryBudget:
+    retryRatio: 0.3
+    minRetriesPerSecond: 20
+    ttl: 10s
+
+---
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: mfa-service.auth-system.svc.cluster.local
+  namespace: auth-system
+spec:
+  routes:
+    - name: "POST /mfa/challenge"
+      condition:
+        method: POST
+        pathRegex: "/mfa/challenge"
+      timeout: 60s
+      isRetryable: false
+    - name: "POST /mfa/verify"
+      condition:
+        method: POST
+        pathRegex: "/mfa/verify"
+      timeout: 30s
+      isRetryable: false
+  retryBudget:
+    retryRatio: 0.1
+    minRetriesPerSecond: 5
+    ttl: 10s

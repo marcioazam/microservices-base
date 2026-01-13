@@ -1,5 +1,6 @@
 # MFA Service - Elixir Multi-Stage Build
 # TOTP, WebAuthn, and Push authentication
+# Build context: repository root (../../)
 
 # ============================================
 # Stage 1: Build Environment
@@ -18,15 +19,15 @@ RUN mix local.hex --force && \
 
 ENV MIX_ENV=prod
 
-COPY auth/mfa-service/mix.exs auth/mfa-service/mix.lock ./
-COPY proto/ ../proto/
+COPY services/mfa/mix.exs services/mfa/mix.lock ./
+COPY api/proto/ ../proto/
 
 RUN mix deps.get --only prod && \
     mix deps.compile
 
-COPY auth/mfa-service/config ./config
-COPY auth/mfa-service/lib ./lib
-COPY auth/mfa-service/priv ./priv
+COPY services/mfa/config ./config
+COPY services/mfa/lib ./lib
+COPY services/mfa/priv ./priv
 
 RUN mix compile && \
     mix release

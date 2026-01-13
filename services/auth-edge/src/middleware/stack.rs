@@ -1,12 +1,11 @@
 //! Service Stack Builder
 //!
-//! Composes middleware layers in the correct order.
+//! Composes middleware layers in the correct order using rust-common components.
 
 use std::time::Duration;
 
 use tower::ServiceBuilder;
 
-use crate::circuit_breaker::CircuitBreakerLayer;
 use crate::config::Config;
 use crate::middleware::rate_limiter::RateLimiterLayer;
 use crate::middleware::timeout::TimeoutLayer;
@@ -19,8 +18,10 @@ use crate::rate_limiter::RateLimitConfig;
 /// 1. Tracing - captures all requests and errors
 /// 2. Timeout - enforces request timeout
 /// 3. RateLimit - prevents abuse
-/// 4. CircuitBreaker - protects downstream services
-/// 5. Inner Service - actual request handler
+/// 4. Inner Service - actual request handler
+/// 
+/// Note: Circuit breaker is now managed at the gRPC client level using
+/// rust-common::CircuitBreaker for downstream service calls.
 pub fn build_service_stack<S>(
     inner: S,
     config: &Config,
@@ -38,7 +39,6 @@ where
         .layer(TracingLayer::new("auth-edge-service"))
         .layer(TimeoutLayer::from_secs(config.timeout_secs()))
         .layer(RateLimiterLayer::new(RateLimitConfig::default()))
-        .layer(CircuitBreakerLayer::<5, 3, 30>::new("downstream"))
         .service(inner)
 }
 

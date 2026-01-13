@@ -1,0 +1,67 @@
+# 2025/12/21 19:06:16.385628 [TestProperty_BatchFlushInvariant] [rapid] draw batchSize: 5
+# 2025/12/21 19:06:16.385628 [TestProperty_BatchFlushInvariant] [rapid] draw messageCount: 100
+# 2025/12/21 19:06:16.385628 [TestProperty_BatchFlushInvariant] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:67
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:46
+# 	Error:      	"11" is not less than or equal to "10"
+# 	Test:       	TestProperty_BatchFlushInvariant
+# 2025/12/21 19:06:16.386200 [TestProperty_BatchFlushInvariant] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:67
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:46
+# 	Error:      	"11" is not less than or equal to "10"
+# 	Test:       	TestProperty_BatchFlushInvariant
+# 2025/12/21 19:06:16.386752 [TestProperty_BatchFlushInvariant] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:67
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:46
+# 	Error:      	"11" is not less than or equal to "10"
+# 	Test:       	TestProperty_BatchFlushInvariant
+# 2025/12/21 19:06:16.386752 [TestProperty_BatchFlushInvariant] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:67
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:46
+# 	Error:      	"11" is not less than or equal to "10"
+# 	Test:       	TestProperty_BatchFlushInvariant
+# 2025/12/21 19:06:16.386752 [TestProperty_BatchFlushInvariant] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:67
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:46
+# 	Error:      	"12" is not less than or equal to "10"
+# 	Test:       	TestProperty_BatchFlushInvariant
+# 2025/12/21 19:06:16.386752 [TestProperty_BatchFlushInvariant] 
+# 	Error Trace:	C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:67
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:371
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:380
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:205
+# 	            				C:/Users/marcio/go/pkg/mod/pgregory.net/rapid@v1.2.0/engine.go:120
+# 	            				C:/Users/marcio/source/microservices-base/platform/cache-service/tests/property/logging_properties_test.go:46
+# 	Error:      	"13" is not less than or equal to "10"
+# 	Test:       	TestProperty_BatchFlushInvariant
+# 
+v0.4.8#15086768634071465444
+0x163d0beac512d1
+0x170b79c24c4e8
+0x0
+0x1936bfdf5b3ba3
+0x1902cf34082b86
+0x68
+0x7f
+0x78
+0x63

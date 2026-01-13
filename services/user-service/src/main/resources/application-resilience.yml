@@ -1,0 +1,51 @@
+resilience4j:
+  circuitbreaker:
+    instances:
+      cryptoService:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+      cacheService:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+      loggingService:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+
+  retry:
+    instances:
+      cryptoService:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+      cacheService:
+        maxAttempts: 3
+        waitDuration: 100ms
+      loggingService:
+        maxAttempts: 2
+        waitDuration: 100ms
+
+  timelimiter:
+    instances:
+      cryptoService:
+        timeoutDuration: 5s
+      cacheService:
+        timeoutDuration: 2s
+      loggingService:
+        timeoutDuration: 2s

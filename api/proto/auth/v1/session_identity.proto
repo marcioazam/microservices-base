@@ -1,0 +1,822 @@
+// Copyright 2025 Auth Platform. All rights reserved.
+// Session Identity Service - Session management and OAuth flows.
+
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/auth-platform/api/gen/go/auth/v1;authv1";
+option java_package = "com.authplatform.api.auth.v1";
+option java_multiple_files = true;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "auth/v1/common.proto";
+import "auth/v1/mfa_service.proto";
+
+// SessionIdentityService manages user sessions, risk assessment, and OAuth flows.
+service SessionIdentityService {
+  // Session Management
+
+  // CreateSession creates a new user session.
+  rpc CreateSession(CreateSessionRequest) returns (Session) {
+    option (google.api.http) = {
+      post: "/v1/sessions"
+      body: "*"
+    };
+  }
+
+  // GetSession retrieves a session by ID.
+  rpc GetSession(GetSessionRequest) returns (Session) {
+    option (google.api.http) = {
+      get: "/v1/sessions/{session_id}"
+    };
+  }
+
+  // ListUserSessions lists all sessions for a user.
+  rpc ListUserSessions(ListUserSessionsRequest) returns (ListUserSessionsResponse) {
+    option (google.api.http) = {
+      get: "/v1/users/{user_id}/sessions"
+    };
+  }
+
+  // TerminateSession terminates a specific session.
+  rpc TerminateSession(TerminateSessionRequest) returns (TerminateSessionResponse) {
+    option (google.api.http) = {
+      delete: "/v1/sessions/{session_id}"
+    };
+  }
+
+  // TerminateAllUserSessions terminates all sessions for a user.
+  rpc TerminateAllUserSessions(TerminateAllUserSessionsRequest) returns (TerminateAllUserSessionsResponse) {
+    option (google.api.http) = {
+      delete: "/v1/users/{user_id}/sessions"
+    };
+  }
+
+  // RefreshSession extends session lifetime.
+  rpc RefreshSession(RefreshSessionRequest) returns (Session) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{session_id}/refresh"
+      body: "*"
+    };
+  }
+
+  // Risk Assessment
+
+  // UpdateRiskScore updates the risk score for a session.
+  rpc UpdateRiskScore(UpdateRiskScoreRequest) returns (RiskAssessment) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{session_id}/risk"
+      body: "*"
+    };
+  }
+
+  // GetRiskAssessment retrieves the current risk assessment.
+  rpc GetRiskAssessment(GetRiskAssessmentRequest) returns (RiskAssessment) {
+    option (google.api.http) = {
+      get: "/v1/sessions/{session_id}/risk"
+    };
+  }
+
+  // OAuth Authorization
+
+  // Authorize handles OAuth 2.1 authorization requests.
+  rpc Authorize(OAuthAuthorizeRequest) returns (OAuthAuthorizeResponse) {
+    option (google.api.http) = {
+      get: "/v1/oauth/authorize"
+    };
+  }
+
+  // Authentication
+
+  // Authenticate performs user authentication.
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/authenticate"
+      body: "*"
+    };
+  }
+
+  // Session Events Stream
+
+  // StreamSessionEvents streams real-time session events.
+  rpc StreamSessionEvents(StreamSessionEventsRequest) returns (stream SessionEvent);
+}
+
+
+// Session Status
+
+// SessionStatus enumerates session states.
+enum SessionStatus {
+  // Unspecified status.
+  SESSION_STATUS_UNSPECIFIED = 0;
+  // Session is active and valid.
+  SESSION_STATUS_ACTIVE = 1;
+  // Session is idle (no recent activity).
+  SESSION_STATUS_IDLE = 2;
+  // Step-up authentication required.
+  SESSION_STATUS_STEP_UP_REQUIRED = 3;
+  // Session was explicitly terminated.
+  SESSION_STATUS_TERMINATED = 4;
+  // Session expired due to TTL.
+  SESSION_STATUS_EXPIRED = 5;
+  // Session is locked due to security concern.
+  SESSION_STATUS_LOCKED = 6;
+}
+
+
+// Session Messages
+
+// Session represents a user session.
+message Session {
+  // Unique session identifier.
+  string session_id = 1;
+
+  // User ID owning the session.
+  string user_id = 2;
+
+  // Device identifier.
+  string device_id = 3;
+
+  // Device information.
+  DeviceInfo device_info = 4;
+
+  // IP address of the session.
+  string ip_address = 5;
+
+  // Geographic location.
+  GeoLocation geo_location = 6;
+
+  // Current session status.
+  SessionStatus status = 7;
+
+  // Current risk score (0.0 - 1.0).
+  double risk_score = 8;
+
+  // Whether MFA was verified in this session.
+  bool mfa_verified = 9;
+
+  // MFA methods used in this session.
+  repeated MFAMethod mfa_methods_used = 10;
+
+  // Session creation timestamp.
+  google.protobuf.Timestamp created_at = 11;
+
+  // Last activity timestamp.
+  google.protobuf.Timestamp last_activity_at = 12;
+
+  // Session expiration timestamp.
+  google.protobuf.Timestamp expires_at = 13;
+
+  // Custom session metadata.
+  map<string, string> metadata = 14;
+
+  // Authentication level achieved.
+  AuthenticationLevel auth_level = 15;
+}
+
+// AuthenticationLevel indicates the strength of authentication.
+enum AuthenticationLevel {
+  // Unspecified level.
+  AUTHENTICATION_LEVEL_UNSPECIFIED = 0;
+  // Single factor (password only).
+  AUTHENTICATION_LEVEL_SINGLE_FACTOR = 1;
+  // Multi-factor authentication.
+  AUTHENTICATION_LEVEL_MULTI_FACTOR = 2;
+  // Hardware-backed authentication (passkey/security key).
+  AUTHENTICATION_LEVEL_HARDWARE = 3;
+  // Phishing-resistant authentication.
+  AUTHENTICATION_LEVEL_PHISHING_RESISTANT = 4;
+}
+
+// DeviceInfo contains device metadata.
+message DeviceInfo {
+  // Device fingerprint hash.
+  string device_fingerprint = 1;
+
+  // Device type (desktop, mobile, tablet).
+  string device_type = 2;
+
+  // Operating system.
+  string os = 3;
+
+  // OS version.
+  string os_version = 4;
+
+  // Browser name.
+  string browser = 5;
+
+  // Browser version.
+  string browser_version = 6;
+
+  // Whether device is mobile.
+  bool is_mobile = 7;
+
+  // Whether device is trusted/registered.
+  bool is_trusted = 8;
+
+  // Device model (for mobile).
+  string model = 9;
+
+  // Device manufacturer.
+  string manufacturer = 10;
+}
+
+// GeoLocation contains geographic information.
+message GeoLocation {
+  // Country code (ISO 3166-1 alpha-2).
+  string country = 1 [(buf.validate.field).string = {
+    max_len: 2
+    pattern: "^[A-Z]{2}$"
+    ignore_empty: true
+  }];
+
+  // Region/state.
+  string region = 2;
+
+  // City name.
+  string city = 3;
+
+  // Latitude coordinate.
+  double latitude = 4 [(buf.validate.field).double = {
+    gte: -90.0
+    lte: 90.0
+  }];
+
+  // Longitude coordinate.
+  double longitude = 5 [(buf.validate.field).double = {
+    gte: -180.0
+    lte: 180.0
+  }];
+
+  // Timezone (IANA format).
+  string timezone = 6;
+
+  // Postal code.
+  string postal_code = 7;
+}
+
+
+// Session Management Messages
+
+// CreateSessionRequest creates a new session.
+message CreateSessionRequest {
+  // User ID for the session.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Device information.
+  DeviceInfo device_info = 2;
+
+  // Client IP address.
+  string ip_address = 3 [(buf.validate.field).string.ip = true];
+
+  // Custom metadata.
+  map<string, string> metadata = 4;
+
+  // Maximum idle time in seconds (default: 1800).
+  int32 max_idle_seconds = 5 [(buf.validate.field).int32 = {
+    gte: 60
+    lte: 86400
+  }];
+
+  // Maximum session lifetime in seconds (default: 86400).
+  int32 max_lifetime_seconds = 6 [(buf.validate.field).int32 = {
+    gte: 300
+    lte: 2592000
+  }];
+}
+
+// GetSessionRequest retrieves a session.
+message GetSessionRequest {
+  // Session ID to retrieve.
+  string session_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// ListUserSessionsRequest lists user sessions.
+message ListUserSessionsRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Pagination parameters.
+  PaginationRequest pagination = 2;
+
+  // Filter to active sessions only.
+  bool active_only = 3;
+}
+
+// ListUserSessionsResponse contains session list.
+message ListUserSessionsResponse {
+  // List of sessions.
+  repeated Session sessions = 1;
+
+  // Pagination metadata.
+  PaginationResponse pagination = 2;
+}
+
+// TerminateSessionRequest terminates a session.
+message TerminateSessionRequest {
+  // Session ID to terminate.
+  string session_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Reason for termination.
+  string reason = 2 [(buf.validate.field).string.max_len = 256];
+}
+
+// TerminateSessionResponse confirms termination.
+message TerminateSessionResponse {
+  // Whether termination succeeded.
+  bool success = 1;
+}
+
+// TerminateAllUserSessionsRequest terminates all user sessions.
+message TerminateAllUserSessionsRequest {
+  // User ID.
+  string user_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Session ID to keep (current session).
+  string except_session_id = 2 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Reason for termination.
+  string reason = 3 [(buf.validate.field).string.max_len = 256];
+}
+
+// TerminateAllUserSessionsResponse confirms bulk termination.
+message TerminateAllUserSessionsResponse {
+  // Number of sessions terminated.
+  int32 terminated_count = 1;
+}
+
+// RefreshSessionRequest extends session lifetime.
+message RefreshSessionRequest {
+  // Session ID to refresh.
+  string session_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+
+// Risk Assessment Messages
+
+// RiskFactorType enumerates risk factor types.
+enum RiskFactorType {
+  // Unspecified factor.
+  RISK_FACTOR_TYPE_UNSPECIFIED = 0;
+  // New/unknown device.
+  RISK_FACTOR_TYPE_NEW_DEVICE = 1;
+  // New geographic location.
+  RISK_FACTOR_TYPE_NEW_LOCATION = 2;
+  // Impossible travel detected.
+  RISK_FACTOR_TYPE_IMPOSSIBLE_TRAVEL = 3;
+  // TOR exit node detected.
+  RISK_FACTOR_TYPE_TOR_EXIT_NODE = 4;
+  // VPN detected.
+  RISK_FACTOR_TYPE_VPN_DETECTED = 5;
+  // Bot behavior detected.
+  RISK_FACTOR_TYPE_BOT_DETECTED = 6;
+  // Credential stuffing attempt.
+  RISK_FACTOR_TYPE_CREDENTIAL_STUFFING = 7;
+  // Brute force attempt.
+  RISK_FACTOR_TYPE_BRUTE_FORCE = 8;
+  // Compromised credentials.
+  RISK_FACTOR_TYPE_COMPROMISED_CREDENTIALS = 9;
+  // Suspicious behavior pattern.
+  RISK_FACTOR_TYPE_SUSPICIOUS_BEHAVIOR = 10;
+  // Known malicious IP.
+  RISK_FACTOR_TYPE_MALICIOUS_IP = 11;
+  // Session anomaly.
+  RISK_FACTOR_TYPE_SESSION_ANOMALY = 12;
+}
+
+// RiskLevel enumerates risk severity levels.
+enum RiskLevel {
+  // Unspecified level.
+  RISK_LEVEL_UNSPECIFIED = 0;
+  // Low risk - normal operation.
+  RISK_LEVEL_LOW = 1;
+  // Medium risk - enhanced monitoring.
+  RISK_LEVEL_MEDIUM = 2;
+  // High risk - step-up required.
+  RISK_LEVEL_HIGH = 3;
+  // Critical risk - block access.
+  RISK_LEVEL_CRITICAL = 4;
+}
+
+// RiskFactor represents a single risk factor.
+message RiskFactor {
+  // Factor type.
+  RiskFactorType type = 1;
+
+  // Factor score (0.0 - 1.0).
+  double score = 2 [(buf.validate.field).double = {
+    gte: 0.0
+    lte: 1.0
+  }];
+
+  // Human-readable description.
+  string description = 3;
+
+  // Additional details.
+  map<string, string> details = 4;
+
+  // When factor was detected.
+  google.protobuf.Timestamp detected_at = 5;
+}
+
+// UpdateRiskScoreRequest updates session risk.
+message UpdateRiskScoreRequest {
+  // Session ID.
+  string session_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Risk factors to add/update.
+  repeated RiskFactor risk_factors = 2;
+}
+
+// RiskAssessment contains risk evaluation results.
+message RiskAssessment {
+  // Session ID.
+  string session_id = 1;
+
+  // Overall risk score (0.0 - 1.0).
+  double overall_score = 2;
+
+  // Risk level classification.
+  RiskLevel risk_level = 3;
+
+  // Contributing risk factors.
+  repeated RiskFactor factors = 4;
+
+  // Whether step-up authentication is required.
+  bool step_up_required = 5;
+
+  // Required MFA methods for step-up.
+  repeated MFAMethod required_mfa_methods = 6;
+
+  // Assessment timestamp.
+  google.protobuf.Timestamp assessed_at = 7;
+
+  // Recommended actions.
+  repeated string recommendations = 8;
+}
+
+// GetRiskAssessmentRequest retrieves risk assessment.
+message GetRiskAssessmentRequest {
+  // Session ID.
+  string session_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+
+// OAuth Authorization Messages
+
+// OAuthAuthorizeRequest handles OAuth 2.1 authorization.
+message OAuthAuthorizeRequest {
+  // Client ID.
+  string client_id = 1 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Redirect URI.
+  string redirect_uri = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.uri = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Response type (code).
+  string response_type = 3 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Requested scopes.
+  string scope = 4;
+
+  // State parameter for CSRF protection.
+  string state = 5 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // PKCE code challenge.
+  string code_challenge = 6 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Code challenge method (must be S256).
+  string code_challenge_method = 7 [(buf.validate.field).string.const = "S256"];
+
+  // Nonce for ID token.
+  string nonce = 8;
+
+  // PAR request URI.
+  string request_uri = 9;
+
+  // Prompt parameter (none, login, consent, select_account).
+  string prompt = 10;
+
+  // Login hint (email or user ID).
+  string login_hint = 11;
+
+  // ACR values for authentication level.
+  string acr_values = 12;
+
+  // UI locales preference.
+  string ui_locales = 13;
+}
+
+// OAuthAuthorizeResponse contains authorization result.
+message OAuthAuthorizeResponse {
+  // Result is either success or error.
+  oneof result {
+    // Successful authorization.
+    OAuthAuthorizeSuccess success = 1;
+    // Authorization error.
+    OAuthAuthorizeError error = 2;
+  }
+}
+
+// OAuthAuthorizeSuccess contains successful authorization.
+message OAuthAuthorizeSuccess {
+  // Authorization code.
+  string code = 1;
+
+  // State parameter (echoed back).
+  string state = 2;
+
+  // Redirect URI with code.
+  string redirect_uri = 3;
+}
+
+// OAuthAuthorizeError contains authorization error.
+message OAuthAuthorizeError {
+  // Error code per RFC 6749.
+  string error = 1;
+
+  // Human-readable error description.
+  string error_description = 2;
+
+  // URI for error documentation.
+  string error_uri = 3;
+
+  // State parameter (echoed back).
+  string state = 4;
+}
+
+
+// Authentication Messages
+
+// AuthenticateRequest performs authentication.
+message AuthenticateRequest {
+  // Credential to authenticate with.
+  oneof credential {
+    // Password-based authentication.
+    PasswordCredential password = 1;
+    // Refresh token authentication.
+    RefreshTokenCredential refresh_token = 2;
+    // Social/federated authentication.
+    SocialCredential social = 3;
+    // Passkey/WebAuthn authentication.
+    PasskeyCredential passkey = 4;
+  }
+
+  // Device information.
+  DeviceInfo device_info = 5;
+
+  // Client IP address.
+  string ip_address = 6 [(buf.validate.field).string.ip = true];
+
+  // Request metadata.
+  RequestMetadata metadata = 7;
+}
+
+// PasswordCredential for password authentication.
+message PasswordCredential {
+  // User email.
+  string email = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.email = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // User password.
+  string password = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 8,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// RefreshTokenCredential for token refresh.
+message RefreshTokenCredential {
+  // Refresh token.
+  string refresh_token = 1 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// SocialCredential for federated authentication.
+message SocialCredential {
+  // Identity provider (google, apple, microsoft).
+  string provider = 1 [
+    (buf.validate.field).required = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // ID token from provider.
+  string id_token = 2;
+
+  // Access token from provider.
+  string access_token = 3;
+
+  // Authorization code from provider.
+  string code = 4;
+}
+
+// PasskeyCredential for WebAuthn authentication.
+message PasskeyCredential {
+  // Credential ID.
+  bytes credential_id = 1 [(buf.validate.field).required = true];
+
+  // Authenticator data.
+  bytes authenticator_data = 2 [(buf.validate.field).required = true];
+
+  // Client data JSON.
+  bytes client_data_json = 3 [(buf.validate.field).required = true];
+
+  // Signature.
+  bytes signature = 4 [(buf.validate.field).required = true];
+
+  // User handle (for discoverable credentials).
+  bytes user_handle = 5;
+}
+
+// AuthenticateResponse contains authentication result.
+message AuthenticateResponse {
+  // Whether authentication succeeded.
+  bool success = 1;
+
+  // User ID if authenticated.
+  string user_id = 2;
+
+  // Session ID if created.
+  string session_id = 3;
+
+  // Whether MFA is required.
+  bool mfa_required = 4;
+
+  // Available MFA methods.
+  repeated MFAMethod available_mfa_methods = 5;
+
+  // Error details if failed.
+  AuthenticationError error = 6;
+
+  // Authentication level achieved.
+  AuthenticationLevel auth_level = 7;
+}
+
+// AuthenticationErrorCode enumerates authentication errors.
+enum AuthenticationErrorCode {
+  // Unspecified error.
+  AUTHENTICATION_ERROR_CODE_UNSPECIFIED = 0;
+  // Invalid credentials.
+  AUTHENTICATION_ERROR_CODE_INVALID_CREDENTIALS = 1;
+  // Account is locked.
+  AUTHENTICATION_ERROR_CODE_ACCOUNT_LOCKED = 2;
+  // Account is disabled.
+  AUTHENTICATION_ERROR_CODE_ACCOUNT_DISABLED = 3;
+  // Password has expired.
+  AUTHENTICATION_ERROR_CODE_PASSWORD_EXPIRED = 4;
+  // MFA is required.
+  AUTHENTICATION_ERROR_CODE_MFA_REQUIRED = 5;
+  // Rate limited.
+  AUTHENTICATION_ERROR_CODE_RATE_LIMITED = 6;
+  // Account not found.
+  AUTHENTICATION_ERROR_CODE_ACCOUNT_NOT_FOUND = 7;
+  // Email not verified.
+  AUTHENTICATION_ERROR_CODE_EMAIL_NOT_VERIFIED = 8;
+}
+
+// AuthenticationError contains error details.
+message AuthenticationError {
+  // Error code.
+  AuthenticationErrorCode code = 1;
+
+  // Human-readable message.
+  string message = 2;
+
+  // Remaining attempts before lockout.
+  int32 remaining_attempts = 3;
+
+  // Lockout expiration time.
+  google.protobuf.Timestamp lockout_until = 4;
+}
+
+
+// Session Events Stream Messages
+
+// SessionEventType enumerates session event types.
+enum SessionEventType {
+  // Unspecified event.
+  SESSION_EVENT_TYPE_UNSPECIFIED = 0;
+  // Session was created.
+  SESSION_EVENT_TYPE_CREATED = 1;
+  // User authenticated.
+  SESSION_EVENT_TYPE_AUTHENTICATED = 2;
+  // MFA was completed.
+  SESSION_EVENT_TYPE_MFA_COMPLETED = 3;
+  // Risk level was elevated.
+  SESSION_EVENT_TYPE_RISK_ELEVATED = 4;
+  // Step-up authentication required.
+  SESSION_EVENT_TYPE_STEP_UP_REQUIRED = 5;
+  // Session was terminated.
+  SESSION_EVENT_TYPE_TERMINATED = 6;
+  // Session expired.
+  SESSION_EVENT_TYPE_EXPIRED = 7;
+  // Session was refreshed.
+  SESSION_EVENT_TYPE_REFRESHED = 8;
+  // Session was locked.
+  SESSION_EVENT_TYPE_LOCKED = 9;
+}
+
+// StreamSessionEventsRequest subscribes to session events.
+message StreamSessionEventsRequest {
+  // User ID to watch (optional for admin).
+  string user_id = 1 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+
+  // Event types to subscribe to.
+  repeated SessionEventType event_types = 2;
+
+  // Session ID to watch (optional).
+  string session_id = 3 [(buf.validate.field).string = {
+    uuid: true
+    ignore_empty: true
+  }];
+}
+
+// SessionEvent represents a session event.
+message SessionEvent {
+  // Unique event identifier.
+  string event_id = 1;
+
+  // Event type.
+  SessionEventType event_type = 2;
+
+  // Session ID.
+  string session_id = 3;
+
+  // User ID.
+  string user_id = 4;
+
+  // Event timestamp.
+  google.protobuf.Timestamp timestamp = 5;
+
+  // Event-specific details.
+  map<string, string> details = 6;
+
+  // IP address associated with event.
+  string ip_address = 7;
+
+  // Device information.
+  DeviceInfo device_info = 8;
+}

@@ -1,0 +1,250 @@
+# OpenTelemetry Collector Configuration - December 2025 Best Practices
+# Enhanced with security filtering, tail-based sampling, and comprehensive telemetry processing
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 16
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:*"
+            - "https://*.example.com"
+
+  # Prometheus scraping for infrastructure metrics
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector'
+          scrape_interval: 30s
+          static_configs:
+            - targets: ['localhost:8888']
+
+processors:
+  # Resource detection for container and host metadata
+  resourcedetection:
+    detectors: [env, system, docker]
+    timeout: 5s
+    override: false
+    system:
+      hostname_sources: ["os"]
+      resource_attributes:
+        host.name:
+          enabled: true
+        host.id:
+          enabled: true
+        os.type:
+          enabled: true
+
+  # Sensitive data filtering - removes passwords, tokens, etc.
+  attributes/filter-sensitive:
+    actions:
+      - key: password
+        action: delete
+      - key: passwd
+        action: delete
+      - key: secret
+        action: delete
+      - key: token
+        action: delete
+      - key: authorization
+        action: delete
+      - key: api_key
+        action: delete
+      - key: apikey
+        action: delete
+      - key: api-key
+        action: delete
+      - key: bearer
+        action: delete
+      - key: credential
+        action: delete
+      - key: private_key
+        action: delete
+      - key: access_token
+        action: delete
+      - key: refresh_token
+        action: delete
+      - key: jwt
+        action: delete
+      - key: session_id
+        action: hash
+      - key: user_id
+        action: hash
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      - key: http.request.header.x-api-key
+        action: delete
+
+  # Tail-based sampling for traces to reduce storage costs
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 100000
+    expected_new_traces_per_sec: 1000
+    policies:
+      # Always sample errors
+      - name: errors-policy
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      # Sample slow traces (> 1 second)
+      - name: slow-traces-policy
+        type: latency
+        latency:
+          threshold_ms: 1000
+      # Sample traces with specific attributes
+      - name: important-operations
+        type: string_attribute
+        string_attribute:
+          key: operation.important
+          values: ["true"]
+      # Probabilistic sampling for everything else (10%)
+      - name: probabilistic-policy
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+  # JSON log parsing and structured field extraction
+  transform/logs:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - merge_maps(attributes, ParseJSON(body), "insert") where IsMatch(body, "^\\{")
+          - set(severity_text, attributes["level"]) where attributes["level"] != nil
+          - set(attributes["service.name"], resource.attributes["service.name"])
+
+  # Memory limiter with spike protection
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1024
+    spike_limit_mib: 256
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # Batch processing for efficiency
+  batch:
+    timeout: 5s
+    send_batch_size: 10000
+    send_batch_max_size: 11000
+
+  # Resource processor for adding common attributes
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${ENVIRONMENT:-development}
+        action: upsert
+      - key: service.namespace
+        value: auth-platform
+        action: upsert
+
+exporters:
+  # Prometheus exporter with proper labeling
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+    namespace: auth_platform
+    const_labels:
+      environment: ${ENVIRONMENT:-development}
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+
+  # OTLP exporter for Tempo (traces)
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+
+  # OTLP exporter for Jaeger (traces - fallback)
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Loki exporter for logs
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    default_labels_enabled:
+      exporter: true
+      job: true
+      instance: true
+      level: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Debug logging (disabled in production)
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  # Health check extension on port 13133
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+    check_collector_pipeline:
+      enabled: true
+      interval: 5m
+      exporter_failure_threshold: 5
+
+  # Performance profiling (pprof)
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # zPages for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+  # Memory ballast for GC optimization
+  memory_ballast:
+    size_mib: 256
+
+service:
+  extensions: [health_check, pprof, zpages, memory_ballast]
+  
+  telemetry:
+    logs:
+      level: info
+      encoding: json
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8889
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, attributes/filter-sensitive, tail_sampling, batch]
+      exporters: [otlp/tempo, otlp/jaeger]
+
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resourcedetection, resource, batch]
+      exporters: [prometheus]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, attributes/filter-sensitive, transform/logs, batch]
+      exporters: [loki]

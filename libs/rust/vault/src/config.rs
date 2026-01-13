@@ -1,8 +1,8 @@
-//! Vault client configuration
-//! Requirements: 1.1, 1.5
+//! Vault client configuration.
 
 use std::time::Duration;
 
+/// Vault client configuration.
 #[derive(Debug, Clone)]
 pub struct VaultConfig {
     /// Vault server address
@@ -17,10 +17,14 @@ pub struct VaultConfig {
     pub max_retries: u32,
     /// Base retry delay
     pub retry_delay: Duration,
-    /// Grace period for cached credentials when Vault unavailable (Requirements 1.5)
+    /// Grace period for cached credentials when Vault unavailable
     pub grace_period: Duration,
     /// Renewal threshold (percentage of TTL remaining to trigger renewal)
     pub renewal_threshold: f64,
+    /// Circuit breaker failure threshold
+    pub circuit_breaker_threshold: u32,
+    /// Circuit breaker reset timeout
+    pub circuit_breaker_timeout: Duration,
 }
 
 impl Default for VaultConfig {
@@ -33,13 +37,17 @@ impl Default for VaultConfig {
             timeout: Duration::from_secs(30),
             max_retries: 3,
             retry_delay: Duration::from_millis(100),
-            grace_period: Duration::from_secs(300), // 5 minutes - Requirements 1.5
-            renewal_threshold: 0.2, // Renew at 20% remaining TTL - Requirements 1.3
+            grace_period: Duration::from_secs(300),
+            renewal_threshold: 0.2,
+            circuit_breaker_threshold: 5,
+            circuit_breaker_timeout: Duration::from_secs(30),
         }
     }
 }
 
 impl VaultConfig {
+    /// Create a new configuration.
+    #[must_use]
     pub fn new(addr: impl Into<String>, role: impl Into<String>) -> Self {
         Self {
             addr: addr.into(),
@@ -48,18 +56,53 @@ impl VaultConfig {
         }
     }
 
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    /// Set request timeout.
+    #[must_use]
+    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
-    pub fn with_grace_period(mut self, grace_period: Duration) -> Self {
+    /// Set grace period.
+    #[must_use]
+    pub const fn with_grace_period(mut self, grace_period: Duration) -> Self {
         self.grace_period = grace_period;
         self
     }
 
+    /// Set renewal threshold (clamped to 0.1-0.5).
+    #[must_use]
     pub fn with_renewal_threshold(mut self, threshold: f64) -> Self {
         self.renewal_threshold = threshold.clamp(0.1, 0.5);
         self
+    }
+
+    /// Set circuit breaker threshold.
+    #[must_use]
+    pub const fn with_circuit_breaker_threshold(mut self, threshold: u32) -> Self {
+        self.circuit_breaker_threshold = threshold;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = VaultConfig::default();
+        assert_eq!(config.grace_period, Duration::from_secs(300));
+        assert!((config.renewal_threshold - 0.2).abs() < f64::EPSILON);
+        assert_eq!(config.circuit_breaker_threshold, 5);
+    }
+
+    #[test]
+    fn test_renewal_threshold_clamping() {
+        let config = VaultConfig::default().with_renewal_threshold(0.05);
+        assert!((config.renewal_threshold - 0.1).abs() < f64::EPSILON);
+
+        let config = VaultConfig::default().with_renewal_threshold(0.8);
+        assert!((config.renewal_threshold - 0.5).abs() < f64::EPSILON);
     }
 }

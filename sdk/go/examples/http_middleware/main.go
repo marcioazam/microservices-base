@@ -1,83 +1,65 @@
-// Example: HTTP middleware with Auth Platform SDK
+// Package main demonstrates HTTP middleware usage.
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
-	authplatform "github.com/auth-platform/sdk-go"
+	sdk "github.com/auth-platform/sdk-go/src"
 )
 
 func main() {
 	// Create client
-	client, err := authplatform.New(authplatform.Config{
-		BaseURL:  "https://auth.example.com",
-		ClientID: "your-client-id",
-	})
+	client, err := sdk.New(
+		sdk.WithBaseURL("https://auth.example.com"),
+		sdk.WithClientID("my-api"),
+	)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to create client: %v", err)
 	}
 	defer client.Close()
 
-	// Create middleware with options
-	authMiddleware := client.Middleware(
-		authplatform.WithSkipPatterns("/health", "/public/.*"),
-		authplatform.WithErrorHandler(jsonErrorHandler),
-	)
+	// Create protected handler
+	protectedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get claims from context
+		claims, ok := sdk.GetClaimsFromContext(r.Context())
+		if !ok {
+			http.Error(w, "No claims in context", http.StatusInternalServerError)
+			return
+		}
+
+		fmt.Fprintf(w, "Hello, %s!\n", claims.Subject)
+		fmt.Fprintf(w, "Your scopes: %s\n", claims.Scope)
+	})
+
+	// Create admin handler with scope requirement
+	adminHandler := sdk.RequireScope("admin")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Welcome to admin area!\n")
+	}))
 
 	// Setup routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/public/info", publicHandler)
-	mux.Handle("/api/profile", authMiddleware(http.HandlerFunc(profileHandler)))
-	mux.Handle("/api/data", authMiddleware(http.HandlerFunc(dataHandler)))
 
-	log.Println("Server starting on :8080")
+	// Public endpoints (no auth)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	})
+
+	// Protected endpoints
+	authMiddleware := client.HTTPMiddleware(
+		// Skip authentication for health checks
+		// middleware.WithSkipPatterns("^/health$"),
+	)
+
+	mux.Handle("/api/me", authMiddleware(protectedHandler))
+	mux.Handle("/api/admin", authMiddleware(adminHandler))
+
+	fmt.Println("Server starting on :8080")
+	fmt.Println("Endpoints:")
+	fmt.Println("  GET /health - Public health check")
+	fmt.Println("  GET /api/me - Protected, returns user info")
+	fmt.Println("  GET /api/admin - Protected, requires 'admin' scope")
+
 	log.Fatal(http.ListenAndServe(":8080", mux))
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
-}
-
-func publicHandler(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "This is public",
-	})
-}
-
-func profileHandler(w http.ResponseWriter, r *http.Request) {
-	claims, ok := authplatform.GetClaimsFromContext(r.Context())
-	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"subject": claims.Subject,
-		"issuer":  claims.Issuer,
-		"scope":   claims.Scope,
-	})
-}
-
-func dataHandler(w http.ResponseWriter, r *http.Request) {
-	claims, _ := authplatform.GetClaimsFromContext(r.Context())
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"user": claims.Subject,
-		"data": []string{"item1", "item2", "item3"},
-	})
-}
-
-func jsonErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error":   "unauthorized",
-		"message": fmt.Sprintf("Authentication failed: %v", err),
-	})
 }

@@ -1,16 +1,13 @@
-//! Property-Based Tests Module
-//!
-//! Uses proptest for invariant verification.
-//! Each test runs minimum 100 iterations.
-//!
-//! Test categories:
-//! - error_sanitization: Sensitive data never leaks
-//! - circuit_breaker: State machine correctness
-//! - rate_limiter: Limit enforcement
-//! - spiffe: ID parsing round-trip
+//! Property-based tests for Auth Edge Service.
 
-pub mod generators;
-pub mod error_sanitization;
+pub mod cache_fallback;
 pub mod circuit_breaker;
-pub mod rate_limiter;
+pub mod config;
+pub mod error_retryability;
+pub mod error_sanitization;
+pub mod generators;
+pub mod jwt_typestate;
+pub mod logging;
+pub mod security;
+pub mod shutdown;
 pub mod spiffe;

@@ -8,7 +8,24 @@
       "Bash(go tool cover:*)",
       "Bash(go build:*)",
       "Bash(go clean:*)",
-      "Bash(go mod tidy:*)"
+      "Bash(go mod tidy:*)",
+      "Bash(dir /b /s .cursorrules)",
+      "Bash(if exist .cursorrules dir /b .cursorrules)",
+      "Bash(go fmt:*)",
+      "Bash(make clean:*)",
+      "Bash(make build:*)",
+      "Bash(make test:*)",
+      "WebSearch",
+      "Bash(go install:*)",
+      "Bash(grep:*)",
+      "Bash(mix help:*)",
+      "Bash(go list:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo tree:*)",
+      "Bash(tee:*)",
+      "Bash(cargo doc:*)",
+      "Bash(cargo fix:*)",
+      "Bash(cargo build:*)"
     ]
   }
 }

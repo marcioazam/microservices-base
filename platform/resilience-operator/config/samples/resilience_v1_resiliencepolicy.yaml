@@ -1,0 +1,20 @@
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: example-policy
+  namespace: default
+spec:
+  targetRef:
+    name: my-service
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+  retry:
+    enabled: true
+    maxAttempts: 3
+    retryableStatusCodes: "5xx,429"
+    retryTimeout: "5s"
+  timeout:
+    enabled: true
+    requestTimeout: "30s"
+    responseTimeout: "10s"

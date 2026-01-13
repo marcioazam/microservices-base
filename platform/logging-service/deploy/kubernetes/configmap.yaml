@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logging-service-config
+  namespace: platform
+  labels:
+    app: logging-service
+data:
+  environment: "production"
+  elasticsearch-url: "http://elasticsearch:9200"
+  index-prefix: "logs"
+  queue-name: "logs-ingestion"
+  max-queue-size: "100000"
+  batch-size: "100"
+  processing-interval-ms: "100"
+  retention-debug-days: "7"
+  retention-info-days: "30"
+  retention-warn-days: "90"
+  retention-error-days: "365"
+  otlp-endpoint: "http://otel-collector:4317"

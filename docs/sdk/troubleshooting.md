@@ -93,6 +93,56 @@ if (!AuthPlatformClient.isPasskeysSupported()) {
 }
 ```
 
+### Passkey Registration Failed
+
+**Error:** `PasskeyRegistrationError`
+
+**Cause:** WebAuthn credential creation failed.
+
+**Solution:**
+1. Check the error cause for underlying WebAuthn error
+2. Verify authenticator attachment setting matches available authenticators
+3. Ensure RP ID matches your domain
+
+```typescript
+import { isPasskeyRegistrationError, isPasskeyCancelledError } from '@auth-platform/sdk';
+
+try {
+  await client.registerPasskey({ deviceName: 'My Device' });
+} catch (error) {
+  if (isPasskeyCancelledError(error)) {
+    // User cancelled - show retry option
+  } else if (isPasskeyRegistrationError(error)) {
+    console.error('Registration failed:', error.message, error.cause);
+  }
+}
+```
+
+### Passkey Authentication Failed
+
+**Error:** `PasskeyAuthError`
+
+**Cause:** WebAuthn assertion failed or server verification failed.
+
+**Solution:**
+1. Verify user has registered passkeys
+2. Check for credential availability on current device
+3. Offer cross-device authentication option
+
+```typescript
+import { isPasskeyAuthError, isPasskeyCancelledError } from '@auth-platform/sdk';
+
+try {
+  await client.authenticateWithPasskey();
+} catch (error) {
+  if (isPasskeyCancelledError(error)) {
+    // User cancelled
+  } else if (isPasskeyAuthError(error)) {
+    // Show fallback authentication
+  }
+}
+```
+
 ### Network Error
 
 **Error:** `NetworkError` (NET_3001) / `TimeoutError` (NET_3002) / `ErrNetwork`

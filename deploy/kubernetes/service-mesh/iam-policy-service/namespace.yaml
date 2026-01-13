@@ -1,0 +1,10 @@
+# IAM Policy Service Namespace with Linkerd Injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iam-policy
+  annotations:
+    linkerd.io/inject: enabled
+  labels:
+    linkerd.io/inject: enabled
+    app.kubernetes.io/part-of: auth-platform

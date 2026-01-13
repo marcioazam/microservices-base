@@ -1,0 +1,73 @@
+# Staging Environment Overlay
+# Kustomize configuration for staging environment
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: auth-system-staging
+
+namePrefix: staging-
+
+labels:
+  - pairs:
+      environment: staging
+      tier: staging
+    includeSelectors: false
+
+resources:
+  - ../../base
+
+# Staging-specific patches
+patches:
+  # Production-like replicas
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=auth-platform"
+
+  # Info logging level
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: LOG_LEVEL
+          value: info
+    target:
+      kind: Deployment
+
+# Staging ConfigMap
+configMapGenerator:
+  - name: auth-platform-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=staging
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+replicas:
+  - name: auth-edge-service
+    count: 2
+  - name: token-service
+    count: 2
+  - name: session-identity-core
+    count: 2
+  - name: iam-policy-service
+    count: 2
+  - name: mfa-service
+    count: 2
+
+images:
+  - name: auth-platform/auth-edge-service
+    newTag: staging
+  - name: auth-platform/token-service
+    newTag: staging
+  - name: auth-platform/session-identity-core
+    newTag: staging
+  - name: auth-platform/iam-policy-service
+    newTag: staging
+  - name: auth-platform/mfa-service
+    newTag: staging

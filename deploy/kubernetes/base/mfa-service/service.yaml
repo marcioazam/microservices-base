@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mfa-service
+  labels:
+    app: mfa-service
+    app.kubernetes.io/name: mfa-service
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: mfa-service
+  ports:
+    - name: grpc
+      port: 8084
+      targetPort: grpc
+    - name: metrics
+      port: 9094
+      targetPort: metrics

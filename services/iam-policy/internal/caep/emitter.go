@@ -6,10 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/auth-platform/iam-policy-service/internal/logging"
 	"github.com/google/uuid"
 )
 
@@ -20,18 +20,33 @@ type Emitter struct {
 	serviceToken string
 	issuer       string
 	httpClient   *http.Client
-	logger       *slog.Logger
+	logger       *logging.Logger
+}
+
+// EmitterConfig holds configuration for the CAEP emitter.
+type EmitterConfig struct {
+	Enabled      bool
+	Transmitter  string
+	ServiceToken string
+	Issuer       string
+	Timeout      time.Duration
+	Logger       *logging.Logger
 }
 
 // NewEmitter creates a new CAEP emitter.
-func NewEmitter(enabled bool, transmitterURL, serviceToken, issuer string, logger *slog.Logger) *Emitter {
+func NewEmitter(cfg EmitterConfig) *Emitter {
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+
 	return &Emitter{
-		enabled:      enabled,
-		transmitter:  transmitterURL,
-		serviceToken: serviceToken,
-		issuer:       issuer,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
-		logger:       logger,
+		enabled:      cfg.Enabled,
+		transmitter:  cfg.Transmitter,
+		serviceToken: cfg.ServiceToken,
+		issuer:       cfg.Issuer,
+		httpClient:   &http.Client{Timeout: timeout},
+		logger:       cfg.Logger,
 	}
 }
 
@@ -108,21 +123,22 @@ func (e *Emitter) EmitPermissionChange(ctx context.Context, userID string, added
 }
 
 func (e *Emitter) emit(ctx context.Context, event Event) EmitResult {
+	eventID := uuid.New().String()
+
 	if !e.enabled {
-		e.logger.Debug("CAEP disabled, skipping event emission",
-			"event_type", event.EventType,
-			"user_id", event.Subject.Sub,
-		)
-		return EmitResult{EventID: uuid.New().String()}
+		e.logDebug(ctx, "CAEP disabled, skipping event emission", event)
+		return EmitResult{EventID: eventID}
 	}
 
 	body, err := json.Marshal(event)
 	if err != nil {
+		e.logError(ctx, "failed to marshal event", event, err)
 		return EmitResult{Error: fmt.Errorf("failed to marshal event: %w", err)}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.transmitter+"/caep/emit", bytes.NewReader(body))
 	if err != nil {
+		e.logError(ctx, "failed to create request", event, err)
 		return EmitResult{Error: fmt.Errorf("failed to create request: %w", err)}
 	}
 
@@ -131,36 +147,56 @@ func (e *Emitter) emit(ctx context.Context, event Event) EmitResult {
 
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
-		e.logger.Error("Failed to emit CAEP event",
-			"event_type", event.EventType,
-			"user_id", event.Subject.Sub,
-			"error", err,
-		)
+		e.logError(ctx, "failed to send event", event, err)
 		return EmitResult{Error: fmt.Errorf("failed to send event: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		e.logger.Error("CAEP transmitter returned error",
-			"event_type", event.EventType,
-			"user_id", event.Subject.Sub,
-			"status", resp.StatusCode,
-		)
-		return EmitResult{Error: fmt.Errorf("transmitter returned status %d", resp.StatusCode)}
+		err := fmt.Errorf("transmitter returned status %d", resp.StatusCode)
+		e.logError(ctx, "CAEP transmitter returned error", event, err)
+		return EmitResult{Error: err}
 	}
 
 	var result struct {
 		EventID string `json:"event_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		result.EventID = uuid.New().String()
+		result.EventID = eventID
 	}
 
-	e.logger.Info("CAEP event emitted",
-		"event_type", event.EventType,
-		"user_id", event.Subject.Sub,
-		"event_id", result.EventID,
-	)
+	e.logInfo(ctx, "CAEP event emitted", event, result.EventID)
 
 	return EmitResult{EventID: result.EventID}
+}
+
+func (e *Emitter) logDebug(ctx context.Context, msg string, event Event) {
+	if e.logger != nil {
+		e.logger.Debug(ctx, msg,
+			logging.String("event_type", event.EventType),
+			logging.String("user_id", event.Subject.Sub))
+	}
+}
+
+func (e *Emitter) logInfo(ctx context.Context, msg string, event Event, eventID string) {
+	if e.logger != nil {
+		e.logger.Info(ctx, msg,
+			logging.String("event_type", event.EventType),
+			logging.String("user_id", event.Subject.Sub),
+			logging.String("event_id", eventID))
+	}
+}
+
+func (e *Emitter) logError(ctx context.Context, msg string, event Event, err error) {
+	if e.logger != nil {
+		e.logger.Error(ctx, msg,
+			logging.String("event_type", event.EventType),
+			logging.String("user_id", event.Subject.Sub),
+			logging.Error(err))
+	}
+}
+
+// IsEnabled returns whether CAEP is enabled.
+func (e *Emitter) IsEnabled() bool {
+	return e.enabled
 }

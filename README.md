@@ -35,13 +35,16 @@ microservices/
 │   ├── go/                     # Go libs (audit, error, tracing)
 │   └── rust/                   # Rust libs (vault, caep, linkerd, pact)
 ├── platform/                   # Platform/Infrastructure services
-│   └── resilience-service/     # Resilience microservice
+│   ├── cache-service/          # Distributed cache microservice (Go)
+│   ├── logging-service/        # Centralized logging service (C#)
+│   └── resilience-service/     # Resilience microservice (Go)
 ├── sdk/                        # Client SDKs
 │   ├── go/                     # Go SDK
 │   ├── python/                 # Python SDK
 │   └── typescript/             # TypeScript SDK
 ├── services/                   # Domain microservices
 │   ├── auth-edge/              # JWT validation, mTLS, rate limiting (Rust)
+│   ├── crypto-service/         # Cryptographic operations, key management (C++)
 │   ├── iam-policy/             # RBAC/ABAC with OPA (Go)
 │   ├── mfa/                    # TOTP, WebAuthn/FIDO2 (Elixir)
 │   ├── session-identity/       # Sessions, OAuth 2.1, event sourcing (Elixir)
@@ -87,6 +90,9 @@ make build
 | Session Identity | Elixir | Phoenix, Ecto | 8082 |
 | IAM Policy | Go | OPA | 8083 |
 | MFA Service | Elixir | OTP | 8084 |
+| Cache Service | Go | Redis, gRPC | 50051/8085 |
+| Resilience Service | Go | Failsafe-go | 50056 |
+| Crypto Service | C++ | OpenSSL, gRPC | 50051/8080 |
 
 ## Security Standards
 

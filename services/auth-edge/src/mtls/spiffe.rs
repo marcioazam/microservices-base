@@ -219,6 +219,92 @@ impl SpiffeValidator {
         Ok(spiffe_id)
     }
 
+    /// Extracts SPIFFE ID from a PEM-encoded certificate.
+    /// 
+    /// This consolidates the SpiffeExtractor functionality into SpiffeValidator.
+    /// The SPIFFE ID is extracted from the Subject Alternative Name (SAN) extension.
+    pub fn extract_from_certificate(&self, certificate_pem: &str) -> Result<OwnedSpiffeId, SpiffeError> {
+        // Parse PEM certificate
+        let pem = certificate_pem.trim();
+        if !pem.starts_with("-----BEGIN CERTIFICATE-----") {
+            return Err(SpiffeError::InvalidPath);
+        }
+
+        // Extract SPIFFE URI from SAN extension
+        // In production, this would use x509-parser or similar
+        // For now, we look for the URI in a simplified way
+        let spiffe_uri = Self::extract_san_uri(pem)?;
+        
+        // Parse and validate the SPIFFE ID
+        self.parse_and_validate_owned(&spiffe_uri)
+    }
+
+    /// Extracts the SPIFFE URI from certificate SAN extension using proper ASN.1 parsing.
+    ///
+    /// SECURITY: This function uses x509-parser to properly parse the certificate
+    /// and extract the URI from the Subject Alternative Name (SAN) extension.
+    /// Previous implementation used string searching which was vulnerable to manipulation.
+    fn extract_san_uri(pem: &str) -> Result<String, SpiffeError> {
+        use x509_parser::prelude::*;
+        use std::io::Cursor;
+
+        // Parse PEM-encoded certificate using rustls-pemfile
+        let mut cursor = Cursor::new(pem.as_bytes());
+        let cert_der = rustls_pemfile::certs(&mut cursor)
+            .next()
+            .ok_or_else(|| {
+                tracing::error!("No PEM certificate found");
+                SpiffeError::InvalidPath
+            })?
+            .map_err(|e| {
+                tracing::error!("Failed to parse PEM: {:?}", e);
+                SpiffeError::InvalidPath
+            })?;
+
+        // Parse X.509 certificate from DER bytes
+        let (_, cert) = X509Certificate::from_der(&cert_der)
+            .map_err(|e| {
+                tracing::error!("Failed to parse X.509 certificate: {:?}", e);
+                SpiffeError::InvalidPath
+            })?;
+
+        // Find the Subject Alternative Name (SAN) extension
+        for ext in cert.extensions() {
+            if let ParsedExtension::SubjectAlternativeName(san) = ext.parsed_extension() {
+                // Iterate through all SAN entries
+                for name in &san.general_names {
+                    // Look for URI type (tag 6 in GeneralName)
+                    if let GeneralName::URI(uri) = name {
+                        // Validate that it's a SPIFFE URI
+                        if uri.starts_with("spiffe://") {
+                            tracing::debug!("Found SPIFFE ID in SAN: {}", uri);
+                            return Ok(uri.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // No SPIFFE URI found in SAN extension
+        tracing::warn!("No SPIFFE URI found in certificate SAN extension");
+        Err(SpiffeError::InvalidPath)
+    }
+
+    /// Extracts the service name from a SPIFFE ID path.
+    /// 
+    /// Assumes format: spiffe://trust-domain/ns/namespace/sa/service-name
+    pub fn extract_service_name(spiffe_id: &OwnedSpiffeId) -> Option<String> {
+        // Look for service account pattern: /sa/<service-name>
+        let path = &spiffe_id.path;
+        for (i, segment) in path.iter().enumerate() {
+            if segment == "sa" && i + 1 < path.len() {
+                return Some(path[i + 1].clone());
+            }
+        }
+        // Fallback: return last path segment
+        path.last().cloned()
+    }
+
     /// Adds a trust domain to the allowlist
     pub fn add_trust_domain(&mut self, domain: String) {
         self.allowed_domains.insert(domain);

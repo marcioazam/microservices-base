@@ -1,5 +1,6 @@
 # Session/Identity Core - Elixir Multi-Stage Build
 # Phoenix/OTP for fault-tolerant session management
+# Build context: repository root (../../)
 
 # ============================================
 # Stage 1: Build Environment
@@ -23,17 +24,17 @@ RUN mix local.hex --force && \
 ENV MIX_ENV=prod
 
 # Copy dependency files
-COPY auth/session-identity-core/mix.exs auth/session-identity-core/mix.lock ./
-COPY proto/ ../proto/
+COPY services/session-identity/mix.exs services/session-identity/mix.lock ./
+COPY api/proto/ ../proto/
 
 # Install dependencies
 RUN mix deps.get --only prod && \
     mix deps.compile
 
 # Copy application code
-COPY auth/session-identity-core/config ./config
-COPY auth/session-identity-core/lib ./lib
-COPY auth/session-identity-core/priv ./priv
+COPY services/session-identity/config ./config
+COPY services/session-identity/lib ./lib
+COPY services/session-identity/priv ./priv
 
 # Compile and build release
 RUN mix compile && \

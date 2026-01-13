@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: password-recovery-config
+  namespace: password-recovery
+  labels:
+    app.kubernetes.io/name: password-recovery-service
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  Recovery__TokenValidityMinutes: "15"
+  TokenCleanup__IntervalMinutes: "60"
+  TokenCleanup__RetentionDays: "30"
+  RabbitMQ__Host: "rabbitmq.platform.svc.cluster.local"

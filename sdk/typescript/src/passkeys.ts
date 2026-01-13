@@ -1,29 +1,89 @@
 /**
- * Passkeys Client - WebAuthn wrapper with platform-specific handling
+ * Passkeys Client - WebAuthn wrapper with platform-specific handling.
+ * 
+ * Provides a high-level API for passkey (WebAuthn) authentication,
+ * supporting both platform authenticators (Touch ID, Face ID, Windows Hello)
+ * and cross-platform authenticators (security keys).
+ * 
+ * @see {@link https://www.w3.org/TR/webauthn-2/ | WebAuthn Level 2}
+ * @packageDocumentation
  */
 
-import {
+import type { AccessToken } from './types/branded.js';
+import type {
   PasskeyCredential,
   PasskeyRegistrationOptions,
   PasskeyAuthenticationOptions,
-} from './types';
+  PasskeyAuthResult,
+} from './types/passkeys.js';
 import {
-  PasskeyError,
   PasskeyNotSupportedError,
   PasskeyCancelledError,
-} from './errors';
+  PasskeyRegistrationError,
+  PasskeyAuthError,
+} from './errors/index.js';
+import { bufferToBase64Url, base64UrlToBuffer } from './utils/base64url.js';
 
+/**
+ * Client for passkey (WebAuthn) authentication.
+ * 
+ * Handles the complexity of WebAuthn credential creation and assertion,
+ * including proper encoding/decoding of binary data and error handling.
+ * 
+ * @example Registration
+ * ```typescript
+ * const client = new PasskeysClient(
+ *   'https://auth.example.com',
+ *   () => tokenManager.getAccessToken()
+ * );
+ * 
+ * if (PasskeysClient.isSupported()) {
+ *   const credential = await client.register({
+ *     deviceName: 'My MacBook',
+ *     authenticatorAttachment: 'platform',
+ *   });
+ *   console.log('Registered:', credential.id);
+ * }
+ * ```
+ * 
+ * @example Authentication
+ * ```typescript
+ * const result = await client.authenticate({
+ *   mediation: 'optional',
+ * });
+ * console.log('Authenticated:', result.userId);
+ * ```
+ */
 export class PasskeysClient {
-  private baseUrl: string;
-  private getAccessToken: () => Promise<string>;
+  private readonly baseUrl: string;
+  private readonly getAccessToken: () => Promise<AccessToken>;
 
-  constructor(baseUrl: string, getAccessToken: () => Promise<string>) {
+  /**
+   * Create a new PasskeysClient instance.
+   * 
+   * @param baseUrl - Base URL of the auth server
+   * @param getAccessToken - Function to get current access token
+   */
+  constructor(baseUrl: string, getAccessToken: () => Promise<AccessToken>) {
     this.baseUrl = baseUrl;
     this.getAccessToken = getAccessToken;
   }
 
   /**
-   * Check if passkeys are supported on this device/browser
+   * Check if passkeys are supported on this device/browser.
+   * 
+   * Checks for the presence of the WebAuthn API (PublicKeyCredential).
+   * 
+   * @returns `true` if WebAuthn is available, `false` otherwise
+   * 
+   * @example
+   * ```typescript
+   * if (PasskeysClient.isSupported()) {
+   *   // Show passkey options
+   * } else {
+   *   // Fall back to password authentication
+   * }
+   * ```
    */
   static isSupported(): boolean {
     return (
@@ -34,7 +94,18 @@ export class PasskeysClient {
   }
 
   /**
-   * Check if platform authenticator is available
+   * Check if a platform authenticator is available.
+   * 
+   * Platform authenticators include Touch ID, Face ID, Windows Hello, etc.
+   * 
+   * @returns `true` if platform authenticator is available
+   * 
+   * @example
+   * ```typescript
+   * if (await PasskeysClient.isPlatformAuthenticatorAvailable()) {
+   *   // Offer biometric authentication
+   * }
+   * ```
    */
   static async isPlatformAuthenticatorAvailable(): Promise<boolean> {
     if (!this.isSupported()) return false;
@@ -42,7 +113,23 @@ export class PasskeysClient {
   }
 
   /**
-   * Register a new passkey
+   * Register a new passkey for the current user.
+   * 
+   * Creates a new WebAuthn credential and registers it with the server.
+   * 
+   * @param options - Registration options
+   * @returns Registered passkey credential information
+   * @throws {@link PasskeyNotSupportedError} If WebAuthn is not supported
+   * @throws {@link PasskeyCancelledError} If user cancels the operation
+   * @throws {@link PasskeyRegistrationError} If registration fails
+   * 
+   * @example
+   * ```typescript
+   * const credential = await client.register({
+   *   deviceName: 'My MacBook Pro',
+   *   authenticatorAttachment: 'platform', // or 'cross-platform' for security keys
+   * });
+   * ```
    */
   async register(options: PasskeyRegistrationOptions = {}): Promise<PasskeyCredential> {
     if (!PasskeysClient.isSupported()) {
@@ -50,9 +137,94 @@ export class PasskeysClient {
     }
 
     const token = await this.getAccessToken();
+    const publicKeyOptions = await this.fetchRegistrationOptions(token, options);
+    const credential = await this.createCredential(publicKeyOptions);
+    return this.verifyRegistration(token, credential, options.deviceName);
+  }
 
-    // Get registration options from server
-    const optionsResponse = await fetch(`${this.baseUrl}/passkeys/register/begin`, {
+  /**
+   * Authenticate using a passkey.
+   * 
+   * Prompts the user to select and use a registered passkey.
+   * 
+   * @param options - Authentication options
+   * @returns Authentication result with tokens
+   * @throws {@link PasskeyNotSupportedError} If WebAuthn is not supported
+   * @throws {@link PasskeyCancelledError} If user cancels the operation
+   * @throws {@link PasskeyAuthError} If authentication fails
+   * 
+   * @example
+   * ```typescript
+   * const result = await client.authenticate({
+   *   mediation: 'optional', // 'silent', 'optional', 'required', or 'conditional'
+   * });
+   * ```
+   */
+  async authenticate(options: PasskeyAuthenticationOptions = {}): Promise<PasskeyAuthResult> {
+    if (!PasskeysClient.isSupported()) {
+      throw new PasskeyNotSupportedError();
+    }
+
+    const publicKeyOptions = await this.fetchAuthenticationOptions(options);
+    const credential = await this.getCredential(publicKeyOptions, options.mediation);
+    return this.verifyAuthentication(credential);
+  }
+
+  /**
+   * List all registered passkeys for the current user.
+   * 
+   * @returns Array of registered passkey credentials
+   * @throws {@link PasskeyAuthError} If the request fails
+   * 
+   * @example
+   * ```typescript
+   * const passkeys = await client.list();
+   * passkeys.forEach(pk => {
+   *   console.log(`${pk.deviceName} - Created: ${pk.createdAt}`);
+   * });
+   * ```
+   */
+  async list(): Promise<PasskeyCredential[]> {
+    const token = await this.getAccessToken();
+    const response = await fetch(`${this.baseUrl}/passkeys`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      throw new PasskeyAuthError('Failed to list passkeys');
+    }
+
+    return response.json() as Promise<PasskeyCredential[]>;
+  }
+
+  /**
+   * Delete a registered passkey.
+   * 
+   * @param passkeyId - ID of the passkey to delete
+   * @throws {@link PasskeyAuthError} If deletion fails
+   * 
+   * @example
+   * ```typescript
+   * await client.delete('passkey-id-123');
+   * ```
+   */
+  async delete(passkeyId: string): Promise<void> {
+    const token = await this.getAccessToken();
+    const response = await fetch(`${this.baseUrl}/passkeys/${passkeyId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      throw new PasskeyAuthError('Failed to delete passkey');
+    }
+  }
+
+  private async fetchRegistrationOptions(
+    token: AccessToken,
+    options: PasskeyRegistrationOptions
+  ): Promise<PublicKeyCredentialCreationOptions> {
+    const response = await fetch(`${this.baseUrl}/passkeys/register/begin`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -63,35 +235,41 @@ export class PasskeysClient {
       }),
     });
 
-    if (!optionsResponse.ok) {
-      throw new PasskeyError('Failed to get registration options', 'REGISTRATION_OPTIONS_FAILED');
+    if (!response.ok) {
+      throw new PasskeyRegistrationError('Failed to get registration options');
     }
 
-    const publicKeyOptions = await optionsResponse.json();
+    const data = (await response.json()) as Record<string, unknown>;
+    return this.decodePublicKeyOptions(data);
+  }
 
-    // Create credential
-    let credential: PublicKeyCredential;
+  private async createCredential(
+    options: PublicKeyCredentialCreationOptions
+  ): Promise<PublicKeyCredential> {
     try {
-      credential = (await navigator.credentials.create({
-        publicKey: this.decodePublicKeyOptions(publicKeyOptions),
-      })) as PublicKeyCredential;
-    } catch (error) {
-      if (error instanceof DOMException) {
-        if (error.name === 'NotAllowedError') {
-          throw new PasskeyCancelledError();
-        }
-        throw new PasskeyError(error.message, error.name);
+      const credential = await navigator.credentials.create({ publicKey: options });
+      if (credential === null) {
+        throw new PasskeyRegistrationError('No credential returned');
       }
-      throw error;
+      return credential as PublicKeyCredential;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        throw new PasskeyCancelledError();
+      }
+      throw new PasskeyRegistrationError(
+        error instanceof Error ? error.message : 'Registration failed',
+        { cause: error }
+      );
     }
+  }
 
-    if (!credential) {
-      throw new PasskeyError('No credential returned', 'NO_CREDENTIAL');
-    }
-
-    // Send attestation to server
-    const attestationResponse = credential.response as AuthenticatorAttestationResponse;
-    const verifyResponse = await fetch(`${this.baseUrl}/passkeys/register/finish`, {
+  private async verifyRegistration(
+    token: AccessToken,
+    credential: PublicKeyCredential,
+    deviceName?: string
+  ): Promise<PasskeyCredential> {
+    const attestation = credential.response as AuthenticatorAttestationResponse;
+    const response = await fetch(`${this.baseUrl}/passkeys/register/finish`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -99,155 +277,108 @@ export class PasskeysClient {
       },
       body: JSON.stringify({
         id: credential.id,
-        rawId: this.bufferToBase64Url(credential.rawId),
+        rawId: bufferToBase64Url(credential.rawId),
         type: credential.type,
-        clientDataJSON: this.bufferToBase64Url(attestationResponse.clientDataJSON),
-        attestationObject: this.bufferToBase64Url(attestationResponse.attestationObject),
-        transports: attestationResponse.getTransports?.() || [],
-        deviceName: options.deviceName,
+        clientDataJSON: bufferToBase64Url(attestation.clientDataJSON),
+        attestationObject: bufferToBase64Url(attestation.attestationObject),
+        transports: attestation.getTransports?.() ?? [],
+        deviceName,
       }),
     });
 
-    if (!verifyResponse.ok) {
-      throw new PasskeyError('Failed to verify registration', 'REGISTRATION_VERIFY_FAILED');
+    if (!response.ok) {
+      throw new PasskeyRegistrationError('Failed to verify registration');
     }
 
-    return verifyResponse.json();
+    return response.json() as Promise<PasskeyCredential>;
   }
 
-  /**
-   * Authenticate with a passkey
-   */
-  async authenticate(options: PasskeyAuthenticationOptions = {}): Promise<{ token: string }> {
-    if (!PasskeysClient.isSupported()) {
-      throw new PasskeyNotSupportedError();
-    }
-
-    // Get authentication options from server
-    const optionsResponse = await fetch(`${this.baseUrl}/passkeys/authenticate/begin`, {
+  private async fetchAuthenticationOptions(
+    options: PasskeyAuthenticationOptions
+  ): Promise<PublicKeyCredentialRequestOptions> {
+    const response = await fetch(`${this.baseUrl}/passkeys/authenticate/begin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mediation: options.mediation }),
     });
 
-    if (!optionsResponse.ok) {
-      throw new PasskeyError('Failed to get authentication options', 'AUTH_OPTIONS_FAILED');
+    if (!response.ok) {
+      throw new PasskeyAuthError('Failed to get authentication options');
     }
 
-    const publicKeyOptions = await optionsResponse.json();
+    const data = (await response.json()) as Record<string, unknown>;
+    return this.decodePublicKeyOptions(data) as PublicKeyCredentialRequestOptions;
+  }
 
-    // Get credential
-    let credential: PublicKeyCredential;
+  private async getCredential(
+    options: PublicKeyCredentialRequestOptions,
+    mediation?: string
+  ): Promise<PublicKeyCredential> {
     try {
-      credential = (await navigator.credentials.get({
-        publicKey: this.decodePublicKeyOptions(publicKeyOptions),
-        mediation: options.mediation as CredentialMediationRequirement,
-      })) as PublicKeyCredential;
-    } catch (error) {
-      if (error instanceof DOMException) {
-        if (error.name === 'NotAllowedError') {
-          throw new PasskeyCancelledError();
-        }
-        throw new PasskeyError(error.message, error.name);
+      const credential = await navigator.credentials.get({
+        publicKey: options,
+        mediation: mediation as CredentialMediationRequirement | undefined,
+      });
+      if (credential === null) {
+        throw new PasskeyAuthError('No credential returned');
       }
-      throw error;
+      return credential as PublicKeyCredential;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        throw new PasskeyCancelledError();
+      }
+      throw new PasskeyAuthError(
+        error instanceof Error ? error.message : 'Authentication failed',
+        { cause: error }
+      );
     }
+  }
 
-    if (!credential) {
-      throw new PasskeyError('No credential returned', 'NO_CREDENTIAL');
-    }
-
-    // Send assertion to server
-    const assertionResponse = credential.response as AuthenticatorAssertionResponse;
-    const verifyResponse = await fetch(`${this.baseUrl}/passkeys/authenticate/finish`, {
+  private async verifyAuthentication(
+    credential: PublicKeyCredential
+  ): Promise<PasskeyAuthResult> {
+    const assertion = credential.response as AuthenticatorAssertionResponse;
+    const response = await fetch(`${this.baseUrl}/passkeys/authenticate/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: credential.id,
-        rawId: this.bufferToBase64Url(credential.rawId),
+        rawId: bufferToBase64Url(credential.rawId),
         type: credential.type,
-        clientDataJSON: this.bufferToBase64Url(assertionResponse.clientDataJSON),
-        authenticatorData: this.bufferToBase64Url(assertionResponse.authenticatorData),
-        signature: this.bufferToBase64Url(assertionResponse.signature),
-        userHandle: assertionResponse.userHandle
-          ? this.bufferToBase64Url(assertionResponse.userHandle)
+        clientDataJSON: bufferToBase64Url(assertion.clientDataJSON),
+        authenticatorData: bufferToBase64Url(assertion.authenticatorData),
+        signature: bufferToBase64Url(assertion.signature),
+        userHandle: assertion.userHandle !== null
+          ? bufferToBase64Url(assertion.userHandle)
           : null,
       }),
     });
 
-    if (!verifyResponse.ok) {
-      throw new PasskeyError('Failed to verify authentication', 'AUTH_VERIFY_FAILED');
-    }
-
-    return verifyResponse.json();
-  }
-
-  /**
-   * List registered passkeys
-   */
-  async list(): Promise<PasskeyCredential[]> {
-    const token = await this.getAccessToken();
-    const response = await fetch(`${this.baseUrl}/passkeys`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
     if (!response.ok) {
-      throw new PasskeyError('Failed to list passkeys', 'LIST_FAILED');
+      throw new PasskeyAuthError('Failed to verify authentication');
     }
 
-    return response.json();
+    return response.json() as Promise<PasskeyAuthResult>;
   }
 
-  /**
-   * Delete a passkey
-   */
-  async delete(passkeyId: string): Promise<void> {
-    const token = await this.getAccessToken();
-    const response = await fetch(`${this.baseUrl}/passkeys/${passkeyId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!response.ok) {
-      throw new PasskeyError('Failed to delete passkey', 'DELETE_FAILED');
-    }
-  }
-
-  private decodePublicKeyOptions(options: any): PublicKeyCredentialCreationOptions {
+  private decodePublicKeyOptions(
+    options: Record<string, unknown>
+  ): PublicKeyCredentialCreationOptions {
     return {
       ...options,
-      challenge: this.base64UrlToBuffer(options.challenge),
-      user: options.user
-        ? { ...options.user, id: this.base64UrlToBuffer(options.user.id) }
+      challenge: base64UrlToBuffer(options.challenge as string),
+      user: options.user !== undefined
+        ? {
+            ...(options.user as Record<string, unknown>),
+            id: base64UrlToBuffer((options.user as Record<string, unknown>).id as string),
+          }
         : undefined,
-      excludeCredentials: options.excludeCredentials?.map((c: any) => ({
-        ...c,
-        id: this.base64UrlToBuffer(c.id),
-      })),
-      allowCredentials: options.allowCredentials?.map((c: any) => ({
-        ...c,
-        id: this.base64UrlToBuffer(c.id),
-      })),
-    };
-  }
-
-  private bufferToBase64Url(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let str = '';
-    for (const byte of bytes) {
-      str += String.fromCharCode(byte);
-    }
-    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
-  private base64UrlToBuffer(base64url: string): ArrayBuffer {
-    const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-    const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-    const binary = atob(base64 + padding);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
+      excludeCredentials: (options.excludeCredentials as Array<Record<string, unknown>> | undefined)?.map(
+        (c) => ({ ...c, id: base64UrlToBuffer(c.id as string) })
+      ),
+      allowCredentials: (options.allowCredentials as Array<Record<string, unknown>> | undefined)?.map(
+        (c) => ({ ...c, id: base64UrlToBuffer(c.id as string) })
+      ),
+    } as PublicKeyCredentialCreationOptions;
   }
 }

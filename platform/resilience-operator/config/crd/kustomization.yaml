@@ -1,0 +1,2 @@
+resources:
+- bases/resilience.auth-platform.github.com_resiliencepolicies.yaml

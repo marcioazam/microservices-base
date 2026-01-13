@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package cache.v1;
+
+option java_package = "com.authplatform.usersvc.proto.cache.v1";
+option java_outer_classname = "CacheProto";
+option java_multiple_files = true;
+
+// CacheService provides cache operations.
+service CacheService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Set(SetRequest) returns (SetResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+enum CacheSource {
+  CACHE_SOURCE_UNSPECIFIED = 0;
+  CACHE_SOURCE_REDIS = 1;
+  CACHE_SOURCE_LOCAL = 2;
+}
+
+message GetRequest {
+  string key = 1;
+  string namespace = 2;
+}
+
+message GetResponse {
+  bool found = 1;
+  bytes value = 2;
+  CacheSource source = 3;
+}
+
+message SetRequest {
+  string key = 1;
+  bytes value = 2;
+  int64 ttl_seconds = 3;
+  string namespace = 4;
+  bool encrypt = 5;
+}
+
+message SetResponse {
+  bool success = 1;
+}
+
+message DeleteRequest {
+  string key = 1;
+  string namespace = 2;
+}
+
+message DeleteResponse {
+  bool deleted = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool healthy = 1;
+  string redis_status = 2;
+  string broker_status = 3;
+  bool local_cache_enabled = 4;
+}

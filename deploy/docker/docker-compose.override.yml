@@ -1,0 +1,40 @@
+# Development overrides
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.override.yml up
+
+version: '3.9'
+
+services:
+  # Enable hot reload for .NET services
+  logging-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+    volumes:
+      - ../../platform/logging-service:/src:ro
+
+  logging-worker:
+    environment:
+      DOTNET_ENVIRONMENT: Development
+
+  resilience-service:
+    environment:
+      RESILIENCE_LOGGING_LEVEL: debug
+      RESILIENCE_OPENTELEMETRY_ENVIRONMENT: development
+
+  # Expose additional ports for debugging
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  elasticsearch:
+    ports:
+      - "9200:9200"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"

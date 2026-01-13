@@ -1,0 +1,388 @@
+// Copyright 2025 Auth Platform. All rights reserved.
+// IAM Policy Service - Authorization and policy management.
+
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/auth-platform/api/gen/go/auth/v1;authv1";
+option java_package = "com.authplatform.api.auth.v1";
+option java_multiple_files = true;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "auth/v1/common.proto";
+
+// IAMPolicyService provides fine-grained access control.
+service IAMPolicyService {
+  // Authorize checks if a subject can perform an action.
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse) {
+    option (google.api.http) = { post: "/v1/iam/authorize" body: "*" };
+  }
+  // BatchAuthorize checks multiple authorization requests.
+  rpc BatchAuthorize(BatchAuthorizeRequest) returns (BatchAuthorizeResponse) {
+    option (google.api.http) = { post: "/v1/iam/authorize/batch" body: "*" };
+  }
+  // CreatePermission creates a new permission.
+  rpc CreatePermission(CreatePermissionRequest) returns (Permission) {
+    option (google.api.http) = { post: "/v1/iam/permissions" body: "*" };
+  }
+  // GetPermission retrieves a permission by ID.
+  rpc GetPermission(GetPermissionRequest) returns (Permission) {
+    option (google.api.http) = { get: "/v1/iam/permissions/{permission_id}" };
+  }
+  // ListPermissions lists all permissions.
+  rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse) {
+    option (google.api.http) = { get: "/v1/iam/permissions" };
+  }
+  // DeletePermission deletes a permission.
+  rpc DeletePermission(DeletePermissionRequest) returns (DeletePermissionResponse) {
+    option (google.api.http) = { delete: "/v1/iam/permissions/{permission_id}" };
+  }
+  // CreateRole creates a new role.
+  rpc CreateRole(CreateRoleRequest) returns (Role) {
+    option (google.api.http) = { post: "/v1/iam/roles" body: "*" };
+  }
+  // GetRole retrieves a role by ID.
+  rpc GetRole(GetRoleRequest) returns (Role) {
+    option (google.api.http) = { get: "/v1/iam/roles/{role_id}" };
+  }
+  // ListRoles lists all roles.
+  rpc ListRoles(ListRolesRequest) returns (ListRolesResponse) {
+    option (google.api.http) = { get: "/v1/iam/roles" };
+  }
+  // UpdateRole updates a role.
+  rpc UpdateRole(UpdateRoleRequest) returns (Role) {
+    option (google.api.http) = { put: "/v1/iam/roles/{role_id}" body: "*" };
+  }
+  // DeleteRole deletes a role.
+  rpc DeleteRole(DeleteRoleRequest) returns (DeleteRoleResponse) {
+    option (google.api.http) = { delete: "/v1/iam/roles/{role_id}" };
+  }
+  // AssignRole assigns a role to a subject.
+  rpc AssignRole(AssignRoleRequest) returns (RoleAssignment) {
+    option (google.api.http) = { post: "/v1/iam/role-assignments" body: "*" };
+  }
+  // RevokeRole revokes a role from a subject.
+  rpc RevokeRole(RevokeRoleRequest) returns (RevokeRoleResponse) {
+    option (google.api.http) = { delete: "/v1/iam/role-assignments/{assignment_id}" };
+  }
+  // ListRoleAssignments lists role assignments.
+  rpc ListRoleAssignments(ListRoleAssignmentsRequest) returns (ListRoleAssignmentsResponse) {
+    option (google.api.http) = { get: "/v1/iam/role-assignments" };
+  }
+  // CreatePolicy creates a new policy.
+  rpc CreatePolicy(CreatePolicyRequest) returns (Policy) {
+    option (google.api.http) = { post: "/v1/iam/policies" body: "*" };
+  }
+  // GetPolicy retrieves a policy by ID.
+  rpc GetPolicy(GetPolicyRequest) returns (Policy) {
+    option (google.api.http) = { get: "/v1/iam/policies/{policy_id}" };
+  }
+  // ListPolicies lists all policies.
+  rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse) {
+    option (google.api.http) = { get: "/v1/iam/policies" };
+  }
+  // UpdatePolicy updates a policy.
+  rpc UpdatePolicy(UpdatePolicyRequest) returns (Policy) {
+    option (google.api.http) = { put: "/v1/iam/policies/{policy_id}" body: "*" };
+  }
+  // DeletePolicy deletes a policy.
+  rpc DeletePolicy(DeletePolicyRequest) returns (DeletePolicyResponse) {
+    option (google.api.http) = { delete: "/v1/iam/policies/{policy_id}" };
+  }
+  // GetPolicyVersion retrieves a specific policy version.
+  rpc GetPolicyVersion(GetPolicyVersionRequest) returns (PolicyVersion) {
+    option (google.api.http) = { get: "/v1/iam/policies/{policy_id}/versions/{version}" };
+  }
+  // ListPolicyVersions lists all versions of a policy.
+  rpc ListPolicyVersions(ListPolicyVersionsRequest) returns (ListPolicyVersionsResponse) {
+    option (google.api.http) = { get: "/v1/iam/policies/{policy_id}/versions" };
+  }
+  // RollbackPolicy rolls back to a previous policy version.
+  rpc RollbackPolicy(RollbackPolicyRequest) returns (Policy) {
+    option (google.api.http) = { post: "/v1/iam/policies/{policy_id}/rollback" body: "*" };
+  }
+}
+
+enum PolicyType {
+  POLICY_TYPE_UNSPECIFIED = 0;
+  POLICY_TYPE_RBAC = 1;
+  POLICY_TYPE_ABAC = 2;
+  POLICY_TYPE_REBAC = 3;
+}
+
+enum DecisionEffect {
+  DECISION_EFFECT_UNSPECIFIED = 0;
+  DECISION_EFFECT_ALLOW = 1;
+  DECISION_EFFECT_DENY = 2;
+}
+
+message AuthorizeRequest {
+  string subject = 1 [(buf.validate.field).required = true];
+  string action = 2 [(buf.validate.field).required = true];
+  string resource = 3 [(buf.validate.field).required = true];
+  map<string, string> subject_attributes = 4;
+  map<string, string> resource_attributes = 5;
+  map<string, string> environment_attributes = 6;
+  RequestMetadata metadata = 7;
+}
+
+message AuthorizeResponse {
+  bool allowed = 1;
+  DecisionEffect effect = 2;
+  Decision decision = 3;
+}
+
+message Decision {
+  bool allowed = 1;
+  DecisionEffect effect = 2;
+  repeated PolicyMatch matched_policies = 3;
+  repeated string matched_roles = 4;
+  repeated string matched_permissions = 5;
+  string reason = 6;
+  int64 evaluation_time_ms = 7;
+  google.protobuf.Timestamp decided_at = 8;
+}
+
+message PolicyMatch {
+  string policy_id = 1;
+  string policy_name = 2;
+  PolicyType policy_type = 3;
+  DecisionEffect effect = 4;
+  string matched_rule = 5;
+  string condition = 6;
+  bool condition_result = 7;
+}
+
+message BatchAuthorizeRequest {
+  repeated AuthorizeRequest requests = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100}];
+}
+
+message BatchAuthorizeResponse {
+  repeated AuthorizeResponse responses = 1;
+  int64 total_evaluation_time_ms = 2;
+}
+
+message Permission {
+  string permission_id = 1;
+  string name = 2;
+  string description = 3;
+  string resource_type = 4;
+  string action = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message CreatePermissionRequest {
+  string name = 1 [(buf.validate.field).required = true];
+  string description = 2;
+  string resource_type = 3;
+  string action = 4;
+}
+
+message GetPermissionRequest {
+  string permission_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message ListPermissionsRequest {
+  PaginationRequest pagination = 1;
+  string resource_type = 2;
+}
+
+message ListPermissionsResponse {
+  repeated Permission permissions = 1;
+  PaginationResponse pagination = 2;
+}
+
+message DeletePermissionRequest {
+  string permission_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message DeletePermissionResponse {
+  bool success = 1;
+}
+
+message Role {
+  string role_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string permission_ids = 4;
+  repeated string parent_role_ids = 5;
+  bool is_system = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message CreateRoleRequest {
+  string name = 1 [(buf.validate.field).required = true];
+  string description = 2;
+  repeated string permission_ids = 3;
+  repeated string parent_role_ids = 4;
+}
+
+message GetRoleRequest {
+  string role_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message ListRolesRequest {
+  PaginationRequest pagination = 1;
+}
+
+message ListRolesResponse {
+  repeated Role roles = 1;
+  PaginationResponse pagination = 2;
+}
+
+message UpdateRoleRequest {
+  string role_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+  optional string name = 2;
+  optional string description = 3;
+  repeated string permission_ids = 4;
+  repeated string parent_role_ids = 5;
+}
+
+message DeleteRoleRequest {
+  string role_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message DeleteRoleResponse {
+  bool success = 1;
+}
+
+message RoleAssignment {
+  string assignment_id = 1;
+  string subject_id = 2;
+  string subject_type = 3;
+  string role_id = 4;
+  string resource_scope = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  string created_by = 8;
+}
+
+message AssignRoleRequest {
+  string subject_id = 1 [(buf.validate.field).required = true];
+  string subject_type = 2 [(buf.validate.field).required = true];
+  string role_id = 3 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+  string resource_scope = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message RevokeRoleRequest {
+  string assignment_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message RevokeRoleResponse {
+  bool success = 1;
+}
+
+message ListRoleAssignmentsRequest {
+  PaginationRequest pagination = 1;
+  string subject_id = 2;
+  string role_id = 3;
+  string resource_scope = 4;
+}
+
+message ListRoleAssignmentsResponse {
+  repeated RoleAssignment assignments = 1;
+  PaginationResponse pagination = 2;
+}
+
+message Policy {
+  string policy_id = 1;
+  string name = 2;
+  string description = 3;
+  PolicyType policy_type = 4;
+  repeated PolicyRule rules = 5;
+  int32 version = 6;
+  bool enabled = 7;
+  int32 priority = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  string created_by = 11;
+}
+
+message PolicyRule {
+  string name = 1;
+  string description = 2;
+  DecisionEffect effect = 3;
+  repeated string subjects = 4;
+  repeated string actions = 5;
+  repeated string resources = 6;
+  string condition = 7;
+  int32 priority = 8;
+}
+
+message CreatePolicyRequest {
+  string name = 1 [(buf.validate.field).required = true];
+  string description = 2;
+  PolicyType policy_type = 3 [(buf.validate.field).required = true];
+  repeated PolicyRule rules = 4 [(buf.validate.field).repeated.min_items = 1];
+  bool enabled = 5;
+  int32 priority = 6;
+}
+
+message GetPolicyRequest {
+  string policy_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message ListPoliciesRequest {
+  PaginationRequest pagination = 1;
+  PolicyType policy_type = 2;
+  optional bool enabled = 3;
+}
+
+message ListPoliciesResponse {
+  repeated Policy policies = 1;
+  PaginationResponse pagination = 2;
+}
+
+message UpdatePolicyRequest {
+  string policy_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+  optional string name = 2;
+  optional string description = 3;
+  repeated PolicyRule rules = 4;
+  optional bool enabled = 5;
+  optional int32 priority = 6;
+}
+
+message DeletePolicyRequest {
+  string policy_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+}
+
+message DeletePolicyResponse {
+  bool success = 1;
+}
+
+message PolicyVersion {
+  string policy_id = 1;
+  int32 version = 2;
+  Policy policy = 3;
+  google.protobuf.Timestamp created_at = 4;
+  string created_by = 5;
+  string change_description = 6;
+}
+
+message GetPolicyVersionRequest {
+  string policy_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+  int32 version = 2 [(buf.validate.field).int32.gte = 1];
+}
+
+message ListPolicyVersionsRequest {
+  string policy_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+  PaginationRequest pagination = 2;
+}
+
+message ListPolicyVersionsResponse {
+  repeated PolicyVersion versions = 1;
+  PaginationResponse pagination = 2;
+}
+
+message RollbackPolicyRequest {
+  string policy_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string.uuid = true];
+  int32 target_version = 2 [(buf.validate.field).int32.gte = 1];
+  string reason = 3;
+}

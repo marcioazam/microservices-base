@@ -1,0 +1,27 @@
+apiVersion: v2
+name: resilience-operator
+description: Kubernetes Operator for Linkerd Service Mesh Resilience Policies
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.30.0-0"
+keywords:
+  - kubernetes
+  - operator
+  - linkerd
+  - service-mesh
+  - resilience
+  - circuit-breaker
+  - retry
+  - timeout
+home: https://github.com/auth-platform/platform
+sources:
+  - https://github.com/auth-platform/platform/tree/main/platform/resilience-service
+maintainers:
+  - name: Auth Platform Team
+    email: platform@auth-platform.github.com
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Full Lifecycle
+dependencies: []

@@ -1,61 +1,93 @@
 //! CAEP Receiver implementation.
+//!
+//! This module provides the receiver for processing incoming CAEP events using native async traits.
 
-use crate::{CaepError, CaepEvent, CaepEventType, SecurityEventToken, SubjectIdentifier};
-use async_trait::async_trait;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use crate::{CaepError, CaepEvent, CaepEventType, CaepResult, SecurityEventToken, SubjectIdentifier};
+use jsonwebtoken::{decode, DecodingKey, Validation};
+use rust_common::{CacheClient, CacheClientConfig};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
-/// CAEP Receiver trait for processing incoming security events
-#[async_trait]
+/// CAEP Receiver trait for processing incoming security events.
+///
+/// Uses native async traits (Rust 2024).
 pub trait CaepReceiver: Send + Sync {
-    /// Process an incoming SET (JWT string)
-    async fn process_set(&self, set_jwt: &str) -> Result<ProcessResult, CaepError>;
+    /// Process an incoming SET (JWT string).
+    fn process_set(&self, set_jwt: &str) -> impl Future<Output = CaepResult<ProcessResult>> + Send;
 
-    /// Validate SET signature against transmitter's JWKS
-    async fn validate_signature(&self, set_jwt: &str) -> Result<SecurityEventToken, CaepError>;
-
-    /// Register a handler for an event type
-    fn register_handler(&mut self, event_type: CaepEventType, handler: Box<dyn EventCallback>);
+    /// Validate SET signature against transmitter's JWKS.
+    fn validate_signature(
+        &self,
+        set_jwt: &str,
+    ) -> impl Future<Output = CaepResult<SecurityEventToken>> + Send;
 }
 
-/// Result of processing a SET
-#[derive(Debug)]
+/// Result of processing a SET.
+#[derive(Debug, Clone)]
 pub struct ProcessResult {
+    /// Event ID from the SET
     pub event_id: String,
+    /// Event type that was processed
     pub event_type: CaepEventType,
+    /// Whether the event was successfully processed
     pub processed: bool,
+    /// Processing time in milliseconds
     pub processing_time_ms: u64,
 }
 
-/// Callback trait for event handlers
-#[async_trait]
+/// Callback trait for event handlers.
 pub trait EventCallback: Send + Sync {
-    async fn on_event(&self, event: &CaepEvent) -> Result<(), CaepError>;
+    /// Handle an event.
+    fn on_event(&self, event: &CaepEvent) -> impl Future<Output = CaepResult<()>> + Send;
 }
 
-/// JWKS cache for signature validation
+/// JWKS cache for signature validation.
 pub struct JwksCache {
     keys: Arc<RwLock<HashMap<String, DecodingKey>>>,
     http_client: reqwest::Client,
+    cache_client: Option<Arc<CacheClient>>,
 }
 
 impl JwksCache {
+    /// Create a new JWKS cache.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             keys: Arc::new(RwLock::new(HashMap::new())),
             http_client: reqwest::Client::new(),
+            cache_client: None,
         }
     }
 
-    pub async fn get_key(&self, jwks_uri: &str, kid: &str) -> Result<DecodingKey, CaepError> {
-        // Check cache first
+    /// Create a JWKS cache with Cache_Service integration.
+    pub async fn with_cache_service(config: CacheClientConfig) -> CaepResult<Self> {
+        let cache_client = CacheClient::new(config).await?;
+        Ok(Self {
+            keys: Arc::new(RwLock::new(HashMap::new())),
+            http_client: reqwest::Client::new(),
+            cache_client: Some(Arc::new(cache_client)),
+        })
+    }
+
+    /// Get a key from the cache.
+    pub async fn get_key(&self, jwks_uri: &str, kid: &str) -> CaepResult<DecodingKey> {
+        // Check local cache first
         {
             let keys = self.keys.read().await;
             if let Some(key) = keys.get(kid) {
                 return Ok(key.clone());
+            }
+        }
+
+        // Check distributed cache if available
+        if let Some(ref cache) = self.cache_client {
+            let cache_key = format!("jwks:{}:{}", jwks_uri, kid);
+            if let Ok(Some(data)) = cache.get(&cache_key).await {
+                // Deserialize and return (simplified)
+                info!(kid = kid, "JWKS key found in distributed cache");
             }
         }
 
@@ -69,7 +101,8 @@ impl JwksCache {
             .ok_or_else(|| CaepError::JwksFetchError(format!("Key {} not found", kid)))
     }
 
-    async fn refresh_jwks(&self, jwks_uri: &str) -> Result<(), CaepError> {
+    /// Refresh JWKS from the remote endpoint.
+    async fn refresh_jwks(&self, jwks_uri: &str) -> CaepResult<()> {
         let response = self
             .http_client
             .get(jwks_uri)
@@ -89,7 +122,6 @@ impl JwksCache {
                 if let (Some(kid), Some(kty)) = (key["kid"].as_str(), key["kty"].as_str()) {
                     let decoding_key = match kty {
                         "EC" => {
-                            // Parse EC key
                             if let (Some(x), Some(y)) = (key["x"].as_str(), key["y"].as_str()) {
                                 DecodingKey::from_ec_components(x, y)
                                     .map_err(|e| CaepError::JwksFetchError(e.to_string()))?
@@ -98,7 +130,6 @@ impl JwksCache {
                             }
                         }
                         "RSA" => {
-                            // Parse RSA key
                             if let (Some(n), Some(e)) = (key["n"].as_str(), key["e"].as_str()) {
                                 DecodingKey::from_rsa_components(n, e)
                                     .map_err(|e| CaepError::JwksFetchError(e.to_string()))?
@@ -115,6 +146,18 @@ impl JwksCache {
 
         Ok(())
     }
+
+    /// Invalidate a key from the cache.
+    pub async fn invalidate(&self, kid: &str) {
+        let mut keys = self.keys.write().await;
+        keys.remove(kid);
+    }
+
+    /// Clear all cached keys.
+    pub async fn clear(&self) {
+        let mut keys = self.keys.write().await;
+        keys.clear();
+    }
 }
 
 impl Default for JwksCache {
@@ -123,21 +166,14 @@ impl Default for JwksCache {
     }
 }
 
-/// Default CAEP Receiver implementation
-pub struct DefaultCaepReceiver {
-    jwks_cache: JwksCache,
-    jwks_uri: String,
-    expected_issuer: String,
-    expected_audience: String,
-    handlers: HashMap<CaepEventType, Vec<Box<dyn EventCallback>>>,
-    retry_config: RetryConfig,
-}
-
-/// Retry configuration for failed event processing
+/// Retry configuration for failed event processing.
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
+    /// Maximum number of retries
     pub max_retries: u32,
+    /// Initial delay in milliseconds
     pub initial_delay_ms: u64,
+    /// Maximum delay in milliseconds
     pub max_delay_ms: u64,
 }
 
@@ -151,24 +187,70 @@ impl Default for RetryConfig {
     }
 }
 
+/// Boxed event callback for dynamic dispatch.
+pub type BoxedCallback = Box<dyn DynEventCallback + Send + Sync>;
+
+/// Dynamic event callback trait for type erasure.
+pub trait DynEventCallback: Send + Sync {
+    /// Handle an event.
+    fn on_event_dyn(
+        &self,
+        event: &CaepEvent,
+    ) -> std::pin::Pin<Box<dyn Future<Output = CaepResult<()>> + Send + '_>>;
+}
+
+/// Default CAEP Receiver implementation.
+pub struct DefaultCaepReceiver {
+    jwks_cache: JwksCache,
+    jwks_uri: String,
+    expected_issuer: String,
+    expected_audience: String,
+    handlers: HashMap<CaepEventType, Vec<BoxedCallback>>,
+    retry_config: RetryConfig,
+}
+
 impl DefaultCaepReceiver {
-    pub fn new(jwks_uri: String, expected_issuer: String, expected_audience: String) -> Self {
+    /// Create a new receiver.
+    #[must_use]
+    pub fn new(
+        jwks_uri: impl Into<String>,
+        expected_issuer: impl Into<String>,
+        expected_audience: impl Into<String>,
+    ) -> Self {
         Self {
             jwks_cache: JwksCache::new(),
-            jwks_uri,
-            expected_issuer,
-            expected_audience,
+            jwks_uri: jwks_uri.into(),
+            expected_issuer: expected_issuer.into(),
+            expected_audience: expected_audience.into(),
             handlers: HashMap::new(),
             retry_config: RetryConfig::default(),
         }
     }
 
+    /// Set retry configuration.
+    #[must_use]
     pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
         self
     }
 
-    fn parse_event_from_set(&self, set: &SecurityEventToken) -> Result<CaepEvent, CaepError> {
+    /// Set JWKS cache with Cache_Service integration.
+    #[must_use]
+    pub fn with_jwks_cache(mut self, cache: JwksCache) -> Self {
+        self.jwks_cache = cache;
+        self
+    }
+
+    /// Register a handler for an event type.
+    pub fn register_handler(&mut self, event_type: CaepEventType, handler: BoxedCallback) {
+        self.handlers
+            .entry(event_type)
+            .or_default()
+            .push(handler);
+    }
+
+    /// Parse an event from a SET.
+    fn parse_event_from_set(&self, set: &SecurityEventToken) -> CaepResult<CaepEvent> {
         for (event_uri, event_data) in &set.events {
             let event_type = match event_uri.as_str() {
                 "https://schemas.openid.net/secevent/caep/event-type/session-revoked" => {
@@ -180,13 +262,18 @@ impl DefaultCaepReceiver {
                 "https://schemas.openid.net/secevent/caep/event-type/assurance-level-change" => {
                     CaepEventType::AssuranceLevelChange
                 }
+                "https://schemas.openid.net/secevent/caep/event-type/token-claims-change" => {
+                    CaepEventType::TokenClaimsChange
+                }
+                "https://schemas.openid.net/secevent/caep/event-type/device-compliance-change" => {
+                    CaepEventType::DeviceComplianceChange
+                }
                 uri => return Err(CaepError::UnknownEventType(uri.to_string())),
             };
 
-            let subject: SubjectIdentifier = serde_json::from_value(
-                event_data["subject"].clone(),
-            )
-            .map_err(|e| CaepError::InvalidSet(e.to_string()))?;
+            let subject: SubjectIdentifier =
+                serde_json::from_value(event_data["subject"].clone())
+                    .map_err(|e| CaepError::invalid_set(e.to_string()))?;
 
             let event_timestamp = chrono::DateTime::from_timestamp(
                 event_data["event_timestamp"].as_i64().unwrap_or(set.iat),
@@ -203,13 +290,14 @@ impl DefaultCaepReceiver {
             });
         }
 
-        Err(CaepError::InvalidSet("No events in SET".to_string()))
+        Err(CaepError::invalid_set("No events in SET"))
     }
 
-    async fn process_with_retry(&self, event: &CaepEvent) -> Result<(), CaepError> {
+    /// Process an event with retry logic.
+    async fn process_with_retry(&self, event: &CaepEvent) -> CaepResult<()> {
         let handlers = self.handlers.get(&event.event_type);
-        
-        if handlers.is_none() || handlers.unwrap().is_empty() {
+
+        if handlers.is_none() || handlers.is_some_and(Vec::is_empty) {
             warn!(event_type = ?event.event_type, "No handlers registered for event type");
             return Ok(());
         }
@@ -228,12 +316,8 @@ impl DefaultCaepReceiver {
 
             let mut all_succeeded = true;
             for handler in handlers {
-                if let Err(e) = handler.on_event(event).await {
-                    error!(
-                        attempt = attempt,
-                        error = %e,
-                        "Handler failed"
-                    );
+                if let Err(e) = handler.on_event_dyn(event).await {
+                    error!(attempt = attempt, error = %e, "Handler failed");
                     last_error = Some(e);
                     all_succeeded = false;
                 }
@@ -244,14 +328,13 @@ impl DefaultCaepReceiver {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| CaepError::ProcessingError("Unknown error".to_string())))
+        Err(last_error.unwrap_or_else(|| CaepError::processing("Unknown error")))
     }
 }
 
-#[async_trait]
 impl CaepReceiver for DefaultCaepReceiver {
     #[instrument(skip(self, set_jwt))]
-    async fn process_set(&self, set_jwt: &str) -> Result<ProcessResult, CaepError> {
+    async fn process_set(&self, set_jwt: &str) -> CaepResult<ProcessResult> {
         let start = std::time::Instant::now();
 
         // Validate and decode
@@ -275,14 +358,14 @@ impl CaepReceiver for DefaultCaepReceiver {
         })
     }
 
-    async fn validate_signature(&self, set_jwt: &str) -> Result<SecurityEventToken, CaepError> {
+    async fn validate_signature(&self, set_jwt: &str) -> CaepResult<SecurityEventToken> {
         // Decode header to get kid
         let header = jsonwebtoken::decode_header(set_jwt)
-            .map_err(|e| CaepError::VerificationError(e.to_string()))?;
+            .map_err(|e| CaepError::verification(e.to_string()))?;
 
         let kid = header
             .kid
-            .ok_or_else(|| CaepError::VerificationError("Missing kid in header".to_string()))?;
+            .ok_or_else(|| CaepError::verification("Missing kid in header"))?;
 
         // Get key from cache
         let key = self.jwks_cache.get_key(&self.jwks_uri, &kid).await?;
@@ -293,15 +376,53 @@ impl CaepReceiver for DefaultCaepReceiver {
         validation.set_audience(&[&self.expected_audience]);
 
         let token_data = decode::<SecurityEventToken>(set_jwt, &key, &validation)
-            .map_err(|e| CaepError::VerificationError(e.to_string()))?;
+            .map_err(|e| CaepError::verification(e.to_string()))?;
 
         Ok(token_data.claims)
     }
+}
 
-    fn register_handler(&mut self, event_type: CaepEventType, handler: Box<dyn EventCallback>) {
-        self.handlers
-            .entry(event_type)
-            .or_insert_with(Vec::new)
-            .push(handler);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_retry_config_default() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.initial_delay_ms, 100);
+        assert_eq!(config.max_delay_ms, 5000);
+    }
+
+    #[test]
+    fn test_jwks_cache_creation() {
+        let cache = JwksCache::new();
+        assert!(cache.cache_client.is_none());
+    }
+
+    #[test]
+    fn test_receiver_creation() {
+        let receiver = DefaultCaepReceiver::new(
+            "https://issuer.com/.well-known/jwks.json",
+            "https://issuer.com",
+            "https://receiver.com",
+        );
+
+        assert_eq!(receiver.jwks_uri, "https://issuer.com/.well-known/jwks.json");
+        assert_eq!(receiver.expected_issuer, "https://issuer.com");
+        assert_eq!(receiver.expected_audience, "https://receiver.com");
+    }
+
+    #[test]
+    fn test_process_result() {
+        let result = ProcessResult {
+            event_id: "test-123".to_string(),
+            event_type: CaepEventType::SessionRevoked,
+            processed: true,
+            processing_time_ms: 50,
+        };
+
+        assert!(result.processed);
+        assert_eq!(result.processing_time_ms, 50);
     }
 }

@@ -1,0 +1,250 @@
+# Staging Environment Configuration
+# Usage: docker compose -f docker-compose.yml -f docker-compose.staging.yml up
+# December 2025 Best Practices - Production-like with test data
+
+x-staging-deploy: &staging-deploy
+  resources:
+    limits:
+      cpus: '1.0'
+      memory: 512M
+    reservations:
+      cpus: '0.25'
+      memory: 128M
+
+services:
+  # ============================================
+  # Platform Services - Staging Configuration
+  # ============================================
+  
+  logging-api:
+    deploy:
+      <<: *staging-deploy
+      replicas: 2
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      LOG_LEVEL: info
+    ports:
+      - "5000:8080"
+
+  logging-worker:
+    deploy:
+      <<: *staging-deploy
+    environment:
+      DOTNET_ENVIRONMENT: Staging
+      LOG_LEVEL: info
+
+  resilience-service:
+    deploy:
+      <<: *staging-deploy
+    environment:
+      RESILIENCE_LOGGING_LEVEL: info
+      RESILIENCE_OPENTELEMETRY_ENVIRONMENT: staging
+    ports:
+      - "50056:50056"
+
+  cache-service:
+    deploy:
+      <<: *staging-deploy
+    environment:
+      LOG_LEVEL: info
+      DEBUG_MODE: "false"
+    ports:
+      - "8085:8080"
+      - "9095:9090"
+
+  # ============================================
+  # Auth Services - Staging Configuration
+  # ============================================
+  
+  auth-edge-service:
+    deploy:
+      <<: *staging-deploy
+      replicas: 2
+    environment:
+      LOG_LEVEL: info
+      DEBUG_MODE: "false"
+      ENVIRONMENT: staging
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+
+  token-service:
+    deploy:
+      <<: *staging-deploy
+      replicas: 2
+    environment:
+      LOG_LEVEL: info
+      DEBUG_MODE: "false"
+      ENVIRONMENT: staging
+    ports:
+      - "8081:8081"
+      - "9091:9091"
+
+  session-identity-core:
+    deploy:
+      <<: *staging-deploy
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      replicas: 2
+    environment:
+      LOG_LEVEL: info
+      MIX_ENV: staging
+      ENVIRONMENT: staging
+    ports:
+      - "4000:4000"
+      - "8082:8082"
+      - "9092:9092"
+
+  iam-policy-service:
+    deploy:
+      <<: *staging-deploy
+      replicas: 2
+    environment:
+      LOG_LEVEL: info
+      DEBUG_MODE: "false"
+      ENVIRONMENT: staging
+    ports:
+      - "8083:8083"
+      - "9093:9093"
+
+  mfa-service:
+    deploy:
+      <<: *staging-deploy
+    environment:
+      LOG_LEVEL: info
+      MIX_ENV: staging
+      ENVIRONMENT: staging
+    ports:
+      - "8084:8084"
+      - "9094:9094"
+
+  # ============================================
+  # Infrastructure - Staging Configuration
+  # ============================================
+  
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    ports:
+      - "5432:5432"
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+
+  elasticsearch:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    environment:
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ports:
+      - "9200:9200"
+
+  rabbitmq:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # ============================================
+  # Observability - Staging Configuration
+  # ============================================
+  
+  otel-collector:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+      - "13133:13133"
+
+  prometheus:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    ports:
+      - "9099:9090"
+
+  grafana:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    environment:
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "3000:3000"
+
+  jaeger:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    ports:
+      - "16686:16686"
+
+  kibana:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    ports:
+      - "5601:5601"

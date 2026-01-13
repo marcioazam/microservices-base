@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam-policy-service
+  labels:
+    app: iam-policy-service
+    app.kubernetes.io/name: iam-policy-service
+    app.kubernetes.io/component: policy
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: iam-policy-service
+  template:
+    metadata:
+      labels:
+        app: iam-policy-service
+        app.kubernetes.io/name: iam-policy-service
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      
+      serviceAccountName: iam-policy-service
+      automountServiceAccountToken: false
+      
+      containers:
+        - name: iam-policy-service
+          image: auth-platform/iam-policy-service:latest
+          imagePullPolicy: IfNotPresent
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          ports:
+            - name: grpc
+              containerPort: 8083
+              protocol: TCP
+            - name: metrics
+              containerPort: 9093
+              protocol: TCP
+          
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          
+          env:
+            - name: SERVICE_NAME
+              value: iam-policy-service
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+          
+          livenessProbe:
+            grpc:
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          
+          readinessProbe:
+            grpc:
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          
+          startupProbe:
+            grpc:
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: policy-cache
+              mountPath: /var/cache/policies
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: policy-cache
+          emptyDir:
+            sizeLimit: 200Mi
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: iam-policy-service
+                topologyKey: kubernetes.io/hostname

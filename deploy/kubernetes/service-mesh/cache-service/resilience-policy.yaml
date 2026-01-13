@@ -1,0 +1,56 @@
+# ResiliencePolicy for Cache Service
+# Provides circuit breaker, retry, and timeout for inter-service communication
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: cache-service-resilience
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: cache-service
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  targetRef:
+    name: cache-service
+    port: 50051  # gRPC port
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 3  # Lower threshold - cache is critical infrastructure
+    failureAccrualMethod: consecutive
+  retry:
+    enabled: true
+    maxAttempts: 2
+    retryableStatusCodes: "503,504,429"
+    retryTimeout: "1s"  # Fast timeout - cache should be quick
+  timeout:
+    enabled: true
+    requestTimeout: "5s"  # Cache operations should be fast
+    responseTimeout: "3s"
+---
+# HTTP API ResiliencePolicy (for REST clients)
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: cache-service-http-resilience
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: cache-service
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  targetRef:
+    name: cache-service
+    port: 8080  # HTTP port
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    failureAccrualMethod: consecutive
+  retry:
+    enabled: true
+    maxAttempts: 2
+    retryableStatusCodes: "502,503,504"
+    retryTimeout: "2s"
+  timeout:
+    enabled: true
+    requestTimeout: "10s"
+    responseTimeout: "5s"

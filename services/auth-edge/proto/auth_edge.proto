@@ -1,0 +1,345 @@
+// Copyright 2025 Auth Platform. All rights reserved.
+// Auth Edge Service - Token validation and identity services at the edge.
+// Simplified version for Rust (without buf/validate and google/api imports)
+
+syntax = "proto3";
+
+package auth.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// AuthEdgeService provides token validation and identity services at the edge.
+service AuthEdgeService {
+  // ValidateToken validates a JWT access token and returns claims.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+  // IntrospectToken performs RFC 7662 token introspection.
+  rpc IntrospectToken(IntrospectTokenRequest) returns (IntrospectTokenResponse);
+
+  // ValidateDPoP validates a DPoP proof JWT per RFC 9449.
+  rpc ValidateDPoP(ValidateDPoPRequest) returns (ValidateDPoPResponse);
+
+  // GetServiceIdentity validates SPIFFE/mTLS service identity.
+  rpc GetServiceIdentity(GetServiceIdentityRequest) returns (GetServiceIdentityResponse);
+
+  // CheckRevocation checks if a token has been revoked.
+  rpc CheckRevocation(CheckRevocationRequest) returns (CheckRevocationResponse);
+}
+
+// ValidateTokenRequest contains the token to validate.
+message ValidateTokenRequest {
+  // The JWT access token to validate.
+  string token = 1;
+
+  // Required claims that must be present in the token.
+  repeated string required_claims = 2;
+
+  // Required scopes - all specified scopes must be present.
+  repeated string required_scopes = 3;
+
+  // Expected audience values - at least one must match.
+  repeated string audiences = 4;
+
+  // DPoP proof JWT for sender-constrained token validation.
+  optional string dpop_proof = 5;
+
+  // HTTP method for DPoP validation (required with dpop_proof).
+  optional string http_method = 6;
+
+  // HTTP URI for DPoP validation (required with dpop_proof).
+  optional string http_uri = 7;
+
+  // Client certificate for mTLS token binding validation.
+  optional string client_certificate_pem = 8;
+}
+
+// ValidateTokenResponse contains validation results.
+message ValidateTokenResponse {
+  // Whether the token is valid.
+  bool valid = 1;
+
+  // Token subject (user ID or client ID).
+  string subject = 2;
+
+  // Token issuer URL.
+  string issuer = 3;
+
+  // Token audience values.
+  repeated string audiences = 4;
+
+  // Token scopes/permissions.
+  repeated string scopes = 5;
+
+  // Token expiration time.
+  google.protobuf.Timestamp expires_at = 6;
+
+  // Token issued at time.
+  google.protobuf.Timestamp issued_at = 7;
+
+  // Token not before time.
+  google.protobuf.Timestamp not_before = 8;
+
+  // JWT ID (jti claim).
+  string jwt_id = 9;
+
+  // Custom claims as JSON structure.
+  google.protobuf.Struct claims = 10;
+
+  // Error details if validation failed.
+  TokenValidationError error = 11;
+
+  // Token binding confirmation (for DPoP/mTLS bound tokens).
+  TokenBinding binding = 12;
+
+  // Authentication context class reference (acr claim).
+  string acr = 13;
+
+  // Authentication methods references (amr claim).
+  repeated string amr = 14;
+
+  // Authorized party (azp claim).
+  string authorized_party = 15;
+}
+
+// TokenValidationError describes why token validation failed.
+message TokenValidationError {
+  // Error code indicating the type of validation failure.
+  TokenErrorCode code = 1;
+
+  // Human-readable error message.
+  string message = 2;
+
+  // Additional error details.
+  map<string, string> details = 3;
+}
+
+// TokenErrorCode enumerates token validation error types.
+enum TokenErrorCode {
+  // Unspecified error.
+  TOKEN_ERROR_CODE_UNSPECIFIED = 0;
+  // Token has expired.
+  TOKEN_ERROR_CODE_EXPIRED = 1;
+  // Token is not yet valid (nbf claim).
+  TOKEN_ERROR_CODE_NOT_YET_VALID = 2;
+  // Token signature is invalid.
+  TOKEN_ERROR_CODE_INVALID_SIGNATURE = 3;
+  // Token issuer is not trusted.
+  TOKEN_ERROR_CODE_INVALID_ISSUER = 4;
+  // Token audience does not match.
+  TOKEN_ERROR_CODE_INVALID_AUDIENCE = 5;
+  // Required claims are missing.
+  TOKEN_ERROR_CODE_MISSING_CLAIMS = 6;
+  // Token does not have required scopes.
+  TOKEN_ERROR_CODE_INSUFFICIENT_SCOPE = 7;
+  // Token has been revoked.
+  TOKEN_ERROR_CODE_REVOKED = 8;
+  // Token format is malformed.
+  TOKEN_ERROR_CODE_MALFORMED = 9;
+  // DPoP proof is invalid.
+  TOKEN_ERROR_CODE_DPOP_INVALID = 10;
+  // Token binding does not match.
+  TOKEN_ERROR_CODE_BINDING_MISMATCH = 11;
+  // Signing key not found.
+  TOKEN_ERROR_CODE_KEY_NOT_FOUND = 12;
+  // Algorithm not supported.
+  TOKEN_ERROR_CODE_ALGORITHM_NOT_SUPPORTED = 13;
+}
+
+// TokenBinding describes token sender constraints per RFC 8705/9449.
+message TokenBinding {
+  // Binding type: "dpop" or "mtls".
+  string type = 1;
+
+  // JWK thumbprint for DPoP binding (jkt claim).
+  string jwk_thumbprint = 2;
+
+  // Certificate thumbprint for mTLS binding (x5t#S256).
+  string certificate_thumbprint = 3;
+
+  // Whether the binding was verified.
+  bool verified = 4;
+}
+
+// IntrospectTokenRequest for RFC 7662 token introspection.
+message IntrospectTokenRequest {
+  // The token to introspect.
+  string token = 1;
+
+  // Hint about the type of token: "access_token" or "refresh_token".
+  string token_type_hint = 2;
+}
+
+// IntrospectTokenResponse per RFC 7662.
+message IntrospectTokenResponse {
+  // Whether the token is active (valid and not revoked).
+  bool active = 1;
+
+  // Space-separated list of scopes.
+  optional string scope = 2;
+
+  // Client identifier for the token.
+  optional string client_id = 3;
+
+  // Human-readable username.
+  optional string username = 4;
+
+  // Token type (e.g., "Bearer", "DPoP").
+  optional string token_type = 5;
+
+  // Token expiration time (Unix timestamp).
+  optional int64 exp = 6;
+
+  // Token issued at time (Unix timestamp).
+  optional int64 iat = 7;
+
+  // Token not before time (Unix timestamp).
+  optional int64 nbf = 8;
+
+  // Subject identifier.
+  optional string sub = 9;
+
+  // Audience.
+  optional string aud = 10;
+
+  // Issuer.
+  optional string iss = 11;
+
+  // JWT ID.
+  optional string jti = 12;
+
+  // Confirmation claim for bound tokens (cnf).
+  google.protobuf.Struct cnf = 13;
+
+  // Authorization details (RAR).
+  repeated AuthorizationDetail authorization_details = 14;
+}
+
+// AuthorizationDetail for Rich Authorization Requests (RFC 9396).
+message AuthorizationDetail {
+  // Type of authorization detail.
+  string type = 1;
+
+  // Locations where the authorization applies.
+  repeated string locations = 2;
+
+  // Actions permitted.
+  repeated string actions = 3;
+
+  // Data types accessible.
+  repeated string datatypes = 4;
+
+  // Resource identifier.
+  string identifier = 5;
+
+  // Additional privileges as JSON.
+  google.protobuf.Struct privileges = 6;
+}
+
+// ValidateDPoPRequest validates a DPoP proof JWT.
+message ValidateDPoPRequest {
+  // The DPoP proof JWT.
+  string dpop_proof = 1;
+
+  // HTTP method of the request.
+  string http_method = 2;
+
+  // HTTP URI of the request.
+  string http_uri = 3;
+
+  // Access token hash for ath claim validation.
+  optional string access_token = 4;
+
+  // Expected nonce value.
+  optional string nonce = 5;
+}
+
+// ValidateDPoPResponse contains DPoP validation results.
+message ValidateDPoPResponse {
+  // Whether the DPoP proof is valid.
+  bool valid = 1;
+
+  // JWK thumbprint of the proof key.
+  string jwk_thumbprint = 2;
+
+  // JWT ID of the proof.
+  string jti = 3;
+
+  // Error details if validation failed.
+  TokenValidationError error = 4;
+
+  // Nonce to include in retry (for nonce-based replay protection).
+  optional string nonce = 5;
+}
+
+// GetServiceIdentityRequest for SPIFFE/mTLS validation.
+message GetServiceIdentityRequest {
+  // PEM-encoded client certificate.
+  string certificate_pem = 1;
+
+  // Certificate chain (optional, for chain validation).
+  repeated string certificate_chain = 2;
+
+  // Expected trust domain for SPIFFE validation.
+  optional string expected_trust_domain = 3;
+}
+
+// GetServiceIdentityResponse contains service identity.
+message GetServiceIdentityResponse {
+  // Whether the certificate is valid.
+  bool valid = 1;
+
+  // SPIFFE ID extracted from the certificate.
+  string spiffe_id = 2;
+
+  // Service name extracted from SPIFFE ID.
+  string service_name = 3;
+
+  // Namespace from SPIFFE ID.
+  string namespace = 4;
+
+  // Trust domain from SPIFFE ID.
+  string trust_domain = 5;
+
+  // Certificate validity start time.
+  google.protobuf.Timestamp not_before = 6;
+
+  // Certificate validity end time.
+  google.protobuf.Timestamp not_after = 7;
+
+  // Certificate serial number.
+  string serial_number = 8;
+
+  // Certificate fingerprint (SHA-256).
+  string fingerprint = 9;
+
+  // Error message if validation failed.
+  string error_message = 10;
+
+  // DNS SANs from the certificate.
+  repeated string dns_names = 11;
+
+  // URI SANs from the certificate.
+  repeated string uri_sans = 12;
+}
+
+// CheckRevocationRequest checks token revocation status.
+message CheckRevocationRequest {
+  // Token to check (JWT ID or token hash).
+  string token_id = 1;
+
+  // Type of identifier: "jti" or "hash".
+  string id_type = 2;
+}
+
+// CheckRevocationResponse contains revocation status.
+message CheckRevocationResponse {
+  // Whether the token is revoked.
+  bool revoked = 1;
+
+  // Revocation time if revoked.
+  google.protobuf.Timestamp revoked_at = 2;
+
+  // Reason for revocation.
+  string reason = 3;
+}

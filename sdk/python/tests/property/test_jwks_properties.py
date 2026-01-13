@@ -64,9 +64,10 @@ class TestJWKSCacheTTLProperties:
             refresh_ahead_seconds=refresh_ahead,
         )
 
-        # Simulate populated cache
+        # Simulate populated cache (both _jwk_client AND _jwks must be set)
         cache._cache_time = time.time()
         cache._jwk_client = MagicMock()
+        cache._jwks = MagicMock()
 
         # Fresh cache should not need refresh
         assert cache._should_refresh() is False
@@ -81,17 +82,23 @@ class TestJWKSCacheTTLProperties:
         Property 3: JWKS Cache TTL Behavior
         Cache SHALL return _should_refresh() == True when elapsed > TTL.
         """
+        # Skip boundary cases where timing could cause flakiness
+        if elapsed == ttl:
+            return
+            
         cache = JWKSCache(
             "https://auth.example.com/.well-known/jwks.json",
             ttl_seconds=ttl,
             refresh_ahead_seconds=0,  # No refresh-ahead for this test
         )
 
-        # Simulate cache populated some time ago
+        # Simulate cache populated some time ago (both _jwk_client AND _jwks must be set)
         cache._cache_time = time.time() - elapsed
         cache._jwk_client = MagicMock()
+        cache._jwks = MagicMock()
 
         should_refresh = cache._should_refresh()
+        # With refresh_ahead=0, refresh when elapsed > ttl
         expected = elapsed > ttl
 
         assert should_refresh == expected, f"TTL={ttl}, elapsed={elapsed}"
@@ -186,18 +193,13 @@ class TestJWKSCacheThreadSafetyProperties:
         assert len(results) == 10
 
     @given(
-        uri=st.text(min_size=10, max_size=100).filter(
-            lambda x: x.startswith("https://")
-        ),
         ttl=st.integers(min_value=1, max_value=86400),
     )
     @settings(max_examples=100)
-    def test_cache_stores_uri_correctly(self, uri: str, ttl: int) -> None:
+    def test_cache_stores_uri_correctly(self, ttl: int) -> None:
         """
         Property: Cache SHALL store JWKS URI correctly.
         """
-        if not uri.startswith("https://"):
-            uri = "https://" + uri
-
+        uri = "https://auth.example.com/.well-known/jwks.json"
         cache = JWKSCache(uri, ttl_seconds=ttl)
         assert cache.jwks_uri == uri

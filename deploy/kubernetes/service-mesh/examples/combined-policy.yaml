@@ -1,0 +1,24 @@
+# Example: Combined Resilience Policy
+# Full resilience configuration for production services
+apiVersion: resilience.auth-platform.github.com/v1
+kind: ResiliencePolicy
+metadata:
+  name: api-full-resilience
+  namespace: default
+spec:
+  targetRef:
+    name: api-service
+    port: 8080
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 10
+    failureAccrualMethod: consecutive
+  retry:
+    enabled: true
+    maxAttempts: 2
+    retryableStatusCodes: "502,503,504"
+    retryTimeout: "3s"
+  timeout:
+    enabled: true
+    requestTimeout: "60s"
+    responseTimeout: "30s"

@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "kaHqzUCcU+4=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\marcio\\source\\microservices-base\\services\\password-recovery\\src\\PasswordRecovery.Application\\PasswordRecovery.Application.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\marcio\\.nuget\\packages\\fluentvalidation\\11.11.0\\fluentvalidation.11.11.0.nupkg.sha512"
+  ],
+  "logs": []
+}

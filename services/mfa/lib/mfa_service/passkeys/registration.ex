@@ -2,10 +2,12 @@ defmodule MfaService.Passkeys.Registration do
   @moduledoc """
   WebAuthn registration with discoverable credentials (passkeys) support.
   Implements FIDO2/WebAuthn Level 2 specification.
+  Uses centralized Challenge module for challenge storage.
   """
 
-  alias MfaService.Passkeys.{Config, Provider, PostgresProvider, Credential}
-  alias MfaService.Passkeys.Crypto
+  alias MfaService.Challenge
+  alias MfaService.Passkeys.{Config, PostgresProvider, Credential}
+  alias AuthPlatform.Security
 
   @type user :: %{id: String.t(), name: String.t(), display_name: String.t()}
   @type registration_options :: map()
@@ -17,7 +19,7 @@ defmodule MfaService.Passkeys.Registration do
   """
   @spec create_options(user(), keyword()) :: {:ok, registration_options()} | {:error, term()}
   def create_options(user, opts \\ []) do
-    challenge = generate_challenge()
+    challenge = Challenge.generate()
 
     exclude_credentials =
       case PostgresProvider.get_credentials_for_user(user.id) do
@@ -28,11 +30,8 @@ defmodule MfaService.Passkeys.Registration do
     authenticator_attachment = Keyword.get(opts, :authenticator_attachment)
 
     options = %{
-      challenge: Base.url_encode64(challenge, padding: false),
-      rp: %{
-        id: Config.rp_id(),
-        name: Config.rp_name()
-      },
+      challenge: Challenge.encode(challenge),
+      rp: %{id: Config.rp_id(), name: Config.rp_name()},
       user: %{
         id: Base.url_encode64(user.id, padding: false),
         name: user.name,
@@ -45,9 +44,7 @@ defmodule MfaService.Passkeys.Registration do
       excludeCredentials: exclude_credentials
     }
 
-    # Store challenge for verification
-    store_challenge(user.id, challenge)
-
+    Challenge.store("passkey:reg:#{user.id}", challenge)
     {:ok, options}
   end
 
@@ -57,7 +54,7 @@ defmodule MfaService.Passkeys.Registration do
   @spec verify_attestation(String.t(), attestation_response(), keyword()) ::
           {:ok, Credential.t()} | {:error, term()}
   def verify_attestation(user_id, response, opts \\ []) do
-    with {:ok, challenge} <- get_stored_challenge(user_id),
+    with {:ok, challenge} <- Challenge.retrieve_and_delete("passkey:reg:#{user_id}"),
          {:ok, client_data} <- parse_client_data(response["clientDataJSON"]),
          :ok <- verify_client_data(client_data, challenge, "webauthn.create"),
          {:ok, attestation_object} <- parse_attestation_object(response["attestationObject"]),
@@ -65,7 +62,6 @@ defmodule MfaService.Passkeys.Registration do
          :ok <- verify_rp_id_hash(auth_data.rp_id_hash),
          :ok <- verify_flags(auth_data.flags),
          {:ok, credential_data} <- extract_credential_data(auth_data) do
-
       credential_attrs = %{
         credential_id: credential_data.credential_id,
         public_key: credential_data.public_key,
@@ -80,32 +76,16 @@ defmodule MfaService.Passkeys.Registration do
         backed_up: auth_data.flags.backup_state
       }
 
-      # Clear the challenge
-      clear_challenge(user_id)
-
       PostgresProvider.store_credential(user_id, credential_attrs)
     end
   end
 
-  # Private functions
-
-  defp generate_challenge do
-    :crypto.strong_rand_bytes(32)
-  end
-
   defp build_authenticator_selection(nil) do
-    %{
-      residentKey: "required",
-      userVerification: "required"
-    }
+    %{residentKey: "required", userVerification: "required"}
   end
 
   defp build_authenticator_selection(attachment) when attachment in ["platform", "cross-platform"] do
-    %{
-      residentKey: "required",
-      userVerification: "required",
-      authenticatorAttachment: attachment
-    }
+    %{residentKey: "required", userVerification: "required", authenticatorAttachment: attachment}
   end
 
   defp credential_descriptor(credential) do
@@ -114,29 +94,6 @@ defmodule MfaService.Passkeys.Registration do
       id: Base.url_encode64(credential.credential_id, padding: false),
       transports: credential.transports
     }
-  end
-
-  defp store_challenge(user_id, challenge) do
-    # In production, use Redis or ETS with TTL
-    key = "passkey_challenge:#{user_id}"
-    :ets.insert(:passkey_challenges, {key, challenge, System.system_time(:second) + 300})
-    :ok
-  end
-
-  defp get_stored_challenge(user_id) do
-    key = "passkey_challenge:#{user_id}"
-    case :ets.lookup(:passkey_challenges, key) do
-      [{^key, challenge, expires_at}] when expires_at > System.system_time(:second) ->
-        {:ok, challenge}
-      _ ->
-        {:error, :challenge_not_found}
-    end
-  end
-
-  defp clear_challenge(user_id) do
-    key = "passkey_challenge:#{user_id}"
-    :ets.delete(:passkey_challenges, key)
-    :ok
   end
 
   defp parse_client_data(client_data_json) when is_binary(client_data_json) do
@@ -158,18 +115,17 @@ defmodule MfaService.Passkeys.Registration do
   defp verify_type(_, _), do: {:error, :invalid_type}
 
   defp verify_challenge(challenge_b64, expected_challenge) do
-    case Base.url_decode64(challenge_b64, padding: false) do
-      {:ok, ^expected_challenge} -> :ok
-      _ -> {:error, :challenge_mismatch}
+    expected_b64 = Base.url_encode64(expected_challenge, padding: false)
+
+    if Security.constant_time_compare(challenge_b64, expected_b64) do
+      :ok
+    else
+      {:error, :challenge_mismatch}
     end
   end
 
   defp verify_origin(origin) do
-    if origin in Config.origins() do
-      :ok
-    else
-      {:error, :invalid_origin}
-    end
+    if origin in Config.origins(), do: :ok, else: {:error, :invalid_origin}
   end
 
   defp parse_attestation_object(attestation_object_b64) do
@@ -182,12 +138,8 @@ defmodule MfaService.Passkeys.Registration do
   end
 
   defp parse_authenticator_data(auth_data) when is_binary(auth_data) do
-    <<
-      rp_id_hash::binary-size(32),
-      flags::8,
-      sign_count::unsigned-big-integer-size(32),
-      rest::binary
-    >> = auth_data
+    <<rp_id_hash::binary-size(32), flags::8, sign_count::unsigned-big-integer-size(32),
+      rest::binary>> = auth_data
 
     parsed_flags = %{
       user_present: (flags &&& 0x01) == 0x01,
@@ -198,32 +150,23 @@ defmodule MfaService.Passkeys.Registration do
       backup_state: (flags &&& 0x10) == 0x10
     }
 
-    {:ok, %{
-      rp_id_hash: rp_id_hash,
-      flags: parsed_flags,
-      sign_count: sign_count,
-      attested_credential_data: rest
-    }}
+    {:ok, %{rp_id_hash: rp_id_hash, flags: parsed_flags, sign_count: sign_count, attested_credential_data: rest}}
   end
 
   defp verify_rp_id_hash(rp_id_hash) do
     expected_hash = :crypto.hash(:sha256, Config.rp_id())
-    if rp_id_hash == expected_hash, do: :ok, else: {:error, :rp_id_mismatch}
+    if Security.constant_time_compare(rp_id_hash, expected_hash), do: :ok, else: {:error, :rp_id_mismatch}
   end
 
   defp verify_flags(%{user_present: true, user_verified: true}), do: :ok
   defp verify_flags(_), do: {:error, :invalid_flags}
 
   defp extract_credential_data(%{attested_credential_data: data, flags: %{attested_credential_data: true}}) do
-    <<
-      aaguid::binary-size(16),
-      cred_id_len::unsigned-big-integer-size(16),
-      credential_id::binary-size(cred_id_len),
-      public_key_cbor::binary
-    >> = data
+    <<aaguid::binary-size(16), cred_id_len::unsigned-big-integer-size(16),
+      credential_id::binary-size(cred_id_len), public_key_cbor::binary>> = data
 
     with {:ok, public_key, _} <- CBOR.decode(public_key_cbor) do
-      alg = public_key[3] || -7  # Default to ES256
+      alg = public_key[3] || -7
 
       {:ok, %{
         aaguid: format_uuid(aaguid),
@@ -237,8 +180,6 @@ defmodule MfaService.Passkeys.Registration do
   defp extract_credential_data(_), do: {:error, :no_credential_data}
 
   defp format_uuid(<<a::binary-size(4), b::binary-size(2), c::binary-size(2), d::binary-size(2), e::binary-size(6)>>) do
-    [a, b, c, d, e]
-    |> Enum.map(&Base.encode16(&1, case: :lower))
-    |> Enum.join("-")
+    [a, b, c, d, e] |> Enum.map(&Base.encode16(&1, case: :lower)) |> Enum.join("-")
   end
 end

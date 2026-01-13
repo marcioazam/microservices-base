@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iam-policy-service
+  labels:
+    app: iam-policy-service
+    app.kubernetes.io/name: iam-policy-service
+    app.kubernetes.io/part-of: auth-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: iam-policy-service
+  ports:
+    - name: grpc
+      port: 8083
+      targetPort: grpc
+    - name: metrics
+      port: 9093
+      targetPort: metrics

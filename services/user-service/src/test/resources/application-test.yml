@@ -1,0 +1,36 @@
+spring:
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:tc:postgresql:16-alpine:///user_service_test
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+  flyway:
+    enabled: false
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://test.example.com
+          jwk-set-uri: https://test.example.com/.well-known/jwks.json
+
+app:
+  platform:
+    cache-service:
+      url: localhost:50060
+      timeout-ms: 1000
+    logging-service:
+      url: localhost:50061
+      timeout-ms: 1000
+
+logging:
+  level:
+    root: WARN
+    com.authplatform.usersvc: DEBUG
+    org.testcontainers: INFO

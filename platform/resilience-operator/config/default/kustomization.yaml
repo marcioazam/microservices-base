@@ -1,0 +1,11 @@
+namespace: resilience-system
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+
+images:
+- name: controller
+  newName: ghcr.io/auth-platform/resilience-operator
+  newTag: latest

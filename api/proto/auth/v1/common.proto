@@ -1,0 +1,198 @@
+// Copyright 2025 Auth Platform. All rights reserved.
+// Common types and utilities for Auth Platform API v1.
+
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/auth-platform/api/gen/go/auth/v1;authv1";
+option java_package = "com.authplatform.api.auth.v1";
+option java_multiple_files = true;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/api/field_behavior.proto";
+
+// RequestMetadata contains common request metadata for distributed tracing
+// and correlation across services.
+message RequestMetadata {
+  // Unique correlation ID for request tracing.
+  // Must be a valid UUID v4 or v7 format.
+  // Example: "550e8400-e29b-41d4-a716-446655440000"
+  string correlation_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Client application identifier making the request.
+  // Example: "web-app-v2", "mobile-ios-v3"
+  string client_id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+    pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+  }];
+
+  // Request timestamp in UTC.
+  google.protobuf.Timestamp timestamp = 3;
+
+  // W3C Trace Context traceparent header value for distributed tracing.
+  // Format: {version}-{trace-id}-{parent-id}-{trace-flags}
+  // Example: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+  string trace_parent = 4 [(buf.validate.field).string = {
+    max_len: 55
+    pattern: "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+    ignore_empty: true
+  }];
+
+  // W3C Trace Context tracestate header value for vendor-specific trace data.
+  string trace_state = 5 [(buf.validate.field).string.max_len = 512];
+
+  // Optional request ID for idempotency.
+  string request_id = 6 [(buf.validate.field).string = {
+    max_len: 64
+    ignore_empty: true
+  }];
+}
+
+
+// PaginationRequest defines cursor-based pagination parameters.
+message PaginationRequest {
+  // Maximum number of items to return per page.
+  // Must be between 1 and 100, defaults to 20 if not specified.
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 1
+    lte: 100
+  }];
+
+  // Opaque page token for cursor-based pagination.
+  // Obtained from PaginationResponse.next_page_token.
+  string page_token = 2 [(buf.validate.field).string.max_len = 512];
+}
+
+// PaginationResponse contains pagination metadata for list responses.
+message PaginationResponse {
+  // Token for retrieving the next page of results.
+  // Empty if there are no more pages.
+  string next_page_token = 1;
+
+  // Total count of items across all pages.
+  // May be omitted if expensive to compute.
+  optional int32 total_count = 2 [(buf.validate.field).int32.gte = 0];
+
+  // Indicates if there are more pages available.
+  bool has_more = 3;
+}
+
+// ErrorDetail provides structured error information for API responses.
+// Follows Google Cloud API error model conventions.
+message ErrorDetail {
+  // Machine-readable error code in UPPER_SNAKE_CASE format.
+  // Example: "INVALID_TOKEN", "RATE_LIMIT_EXCEEDED"
+  string code = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 64
+    pattern: "^[A-Z][A-Z0-9_]*$"
+  }];
+
+  // Human-readable error message suitable for display.
+  // Should be localized based on Accept-Language header.
+  string message = 2 [(buf.validate.field).string.max_len = 1024];
+
+  // Field path for validation errors using dot notation.
+  // Example: "user.email", "request.items[0].quantity"
+  string field = 3 [(buf.validate.field).string.max_len = 256];
+
+  // Additional error metadata as key-value pairs.
+  // Keys should be lowercase with underscores.
+  map<string, string> metadata = 4;
+
+  // Nested error details for complex validation failures.
+  repeated ErrorDetail details = 5;
+}
+
+// FieldViolation describes a single field validation error.
+message FieldViolation {
+  // Field path that failed validation.
+  string field = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+  }];
+
+  // Description of the validation failure.
+  string description = 2 [(buf.validate.field).string.max_len = 512];
+
+  // Constraint that was violated.
+  // Example: "required", "min_length", "pattern"
+  string constraint = 3;
+
+  // Expected value or format.
+  string expected = 4;
+
+  // Actual value that was provided (sanitized).
+  string actual = 5;
+}
+
+// RetryInfo provides information about when to retry a failed request.
+message RetryInfo {
+  // Minimum delay before retrying the request.
+  google.protobuf.Duration retry_delay = 1;
+
+  // Maximum number of retry attempts recommended.
+  int32 max_retries = 2 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 10
+  }];
+}
+
+// RateLimitInfo provides rate limiting information.
+message RateLimitInfo {
+  // Maximum requests allowed in the window.
+  int32 limit = 1;
+
+  // Remaining requests in the current window.
+  int32 remaining = 2;
+
+  // Time when the rate limit window resets.
+  google.protobuf.Timestamp reset_at = 3;
+
+  // Duration of the rate limit window.
+  google.protobuf.Duration window = 4;
+}
+
+// AuditContext contains information for audit logging.
+message AuditContext {
+  // User ID performing the action.
+  string user_id = 1;
+
+  // IP address of the request origin.
+  string ip_address = 2 [(buf.validate.field).string.ip = true];
+
+  // User agent string.
+  string user_agent = 3 [(buf.validate.field).string.max_len = 512];
+
+  // Geographic location derived from IP.
+  string geo_location = 4;
+
+  // Session ID if applicable.
+  string session_id = 5;
+
+  // Action being performed.
+  string action = 6;
+
+  // Resource being accessed.
+  string resource = 7;
+
+  // Timestamp of the action.
+  google.protobuf.Timestamp timestamp = 8;
+}
+
+// SortOrder defines the sort direction for list queries.
+enum SortOrder {
+  // Unspecified sort order, defaults to ascending.
+  SORT_ORDER_UNSPECIFIED = 0;
+  // Ascending order (A-Z, 0-9, oldest first).
+  SORT_ORDER_ASC = 1;
+  // Descending order (Z-A, 9-0, newest first).
+  SORT_ORDER_DESC = 2;
+}

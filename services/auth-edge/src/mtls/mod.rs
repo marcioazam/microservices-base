@@ -1,5 +1,6 @@
 pub mod spiffe;
 pub mod verifier;
 
-pub use spiffe::SpiffeExtractor;
+// Re-export commonly used types
+pub use spiffe::{SpiffeValidator, SpiffeId, OwnedSpiffeId, SpiffeError};
 pub use verifier::CertificateVerifier;

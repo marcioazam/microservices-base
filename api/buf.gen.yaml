@@ -1,0 +1,108 @@
+# buf.gen.yaml - Code generation configuration for Auth Platform API
+# https://buf.build/docs/configuration/v2/buf-gen-yaml
+version: v2
+
+inputs:
+  - directory: proto
+
+plugins:
+  # ============================================================================
+  # Go Code Generation
+  # ============================================================================
+  
+  # Protocol Buffers for Go
+  - remote: buf.build/protocolbuffers/go:v1.36.5
+    out: gen/go
+    opt:
+      - paths=source_relative
+  
+  # gRPC for Go
+  - remote: buf.build/grpc/go:v1.5.1
+    out: gen/go
+    opt:
+      - paths=source_relative
+  
+  # Connect-RPC for Go
+  - remote: buf.build/connectrpc/go:v1.17.0
+    out: gen/go
+    opt:
+      - paths=source_relative
+  
+  # gRPC-Gateway for REST support
+  - remote: buf.build/grpc-ecosystem/gateway:v2.25.1
+    out: gen/go
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=true
+
+  # ============================================================================
+  # Rust Code Generation
+  # ============================================================================
+  
+  # Prost for Rust protobuf
+  - remote: buf.build/community/neoeinstein-prost:v0.4.0
+    out: gen/rust
+  
+  # Tonic for Rust gRPC
+  - remote: buf.build/community/neoeinstein-tonic:v0.4.1
+    out: gen/rust
+    opt:
+      - compile_well_known_types=true
+
+  # ============================================================================
+  # TypeScript/JavaScript Code Generation (Connect-ES)
+  # ============================================================================
+  
+  # Protobuf-ES for TypeScript
+  - remote: buf.build/bufbuild/es:v2.2.3
+    out: gen/typescript
+  
+  # Connect-ES for TypeScript RPC
+  - remote: buf.build/connectrpc/es:v2.0.0
+    out: gen/typescript
+
+  # ============================================================================
+  # Python Code Generation
+  # ============================================================================
+  
+  # Protocol Buffers for Python
+  - remote: buf.build/protocolbuffers/python:v29.3
+    out: gen/python
+  
+  # gRPC for Python
+  - remote: buf.build/grpc/python:v1.70.0
+    out: gen/python
+
+  # ============================================================================
+  # OpenAPI Specification Generation
+  # ============================================================================
+  
+  # OpenAPI v2 (Swagger) generation
+  - remote: buf.build/grpc-ecosystem/openapiv2:v2.25.1
+    out: openapi/v1
+    opt:
+      - allow_merge=true
+      - merge_file_name=api
+      - openapi_naming_strategy=fqn
+      - generate_unbound_methods=true
+
+# ============================================================================
+# Managed Mode Configuration
+# ============================================================================
+managed:
+  enabled: true
+  override:
+    # Go package prefix
+    - file_option: go_package_prefix
+      value: github.com/auth-platform/api/gen/go
+    # Java package configuration
+    - file_option: java_multiple_files
+      value: true
+    - file_option: java_package_prefix
+      value: com.authplatform.api
+  disable:
+    # Don't modify protovalidate packages
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
+    - file_option: java_package
+      module: buf.build/bufbuild/protovalidate

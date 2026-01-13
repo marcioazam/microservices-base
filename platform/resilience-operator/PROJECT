@@ -1,0 +1,16 @@
+domain: auth-platform.github.com
+layout:
+- go.kubebuilder.io/v4
+projectName: resilience-operator
+repo: github.com/auth-platform/platform/resilience-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: auth-platform.github.com
+  group: resilience
+  kind: ResiliencePolicy
+  path: github.com/auth-platform/platform/resilience-operator/api/v1
+  version: v1
+version: "3"

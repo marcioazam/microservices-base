@@ -1,3 +1,3 @@
 pub mod publisher;
 
-pub use publisher::JwksPublisher;
+pub use publisher::{Jwk, Jwks, JwksPublisher};

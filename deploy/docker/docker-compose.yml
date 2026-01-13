@@ -1,32 +1,213 @@
-# Auth Microservices Platform - Docker Compose
-# Development and local testing environment
+# Microservices Platform - Centralized Docker Compose
+# Docker Compose V2 Format - December 2025 Best Practices
+# All services share infrastructure (Redis, Elasticsearch, RabbitMQ, Prometheus, etc.)
 
-version: '3.9'
+# ============================================
+# Common Extensions (YAML Anchors)
+# ============================================
+
+x-common-logging: &common-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-common-security: &common-security
+  security_opt:
+    - no-new-privileges:true
+
+x-common-healthcheck: &common-healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
 
 x-common-env: &common-env
   LOG_LEVEL: info
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-  SPIFFE_ENDPOINT_SOCKET: unix:///spire-agent-socket/spire-agent.sock
 
-x-healthcheck: &healthcheck
-  interval: 30s
-  timeout: 10s
-  retries: 3
-  start_period: 40s
+x-common-deploy: &common-deploy
+  resources:
+    limits:
+      cpus: '0.5'
+      memory: 256M
+    reservations:
+      cpus: '0.1'
+      memory: 64M
 
 services:
   # ============================================
-  # Core Services
+  # Platform Services
   # ============================================
+  
+  logging-api:
+    build:
+      context: ../..
+      dockerfile: platform/logging-service/Dockerfile
+      target: api
+    image: platform/logging-service-api:${VERSION:-latest}
+    container_name: logging-api
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    ports:
+      - "5000:8080"
+      - "5001:8081"
+    environment:
+      <<: *common-env
+      ASPNETCORE_ENVIRONMENT: Development
+      LoggingService__ElasticSearch__Nodes__0: http://elasticsearch:9200
+      LoggingService__Queue__ConnectionString: amqp://guest:guest@rabbitmq:5672
+      LoggingService__Redis__ConnectionString: redis:6379
+      Otlp__Endpoint: http://otel-collector:4317
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+    env_file:
+      - .env
+
+  logging-worker:
+    build:
+      context: ../..
+      dockerfile: platform/logging-service/Dockerfile
+      target: worker
+    image: platform/logging-service-worker:${VERSION:-latest}
+    container_name: logging-worker
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    environment:
+      <<: *common-env
+      DOTNET_ENVIRONMENT: Development
+      LoggingService__ElasticSearch__Nodes__0: http://elasticsearch:9200
+      LoggingService__Queue__ConnectionString: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+    env_file:
+      - .env
+
+  resilience-service:
+    build:
+      context: ../..
+      dockerfile: platform/resilience-service/Dockerfile
+    image: platform/resilience-service:${VERSION:-latest}
+    container_name: resilience-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+    ports:
+      - "50056:50056"
+    environment:
+      <<: *common-env
+      RESILIENCE_SERVER_HOST: 0.0.0.0
+      RESILIENCE_SERVER_PORT: "50056"
+      RESILIENCE_REDIS_URL: redis://redis:6379
+      RESILIENCE_REDIS_DB: "1"
+      RESILIENCE_OPENTELEMETRY_ENDPOINT: http://otel-collector:4317
+      RESILIENCE_OPENTELEMETRY_SERVICE_NAME: resilience-service
+      RESILIENCE_LOGGING_LEVEL: info
+      RESILIENCE_LOGGING_FORMAT: json
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "grpc_health_probe", "-addr=:50056"]
+    env_file:
+      - .env
+
+  cache-service:
+    build:
+      context: ../..
+      dockerfile: platform/cache-service/Dockerfile
+    image: platform/cache-service:${VERSION:-latest}
+    container_name: cache-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+    ports:
+      - "8085:8080"
+      - "9095:9090"
+    environment:
+      <<: *common-env
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: "2"
+      GRPC_ADDR: ":9090"
+      HTTP_ADDR: ":8080"
+      DEFAULT_TTL: "1h"
+      BROKER_TYPE: rabbitmq
+      BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: auth-platform
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+    env_file:
+      - .env
+
+  # ============================================
+  # Auth Services
+  # ============================================
+  
   auth-edge-service:
     build:
       context: ../..
       dockerfile: deploy/docker/auth-edge-service/Dockerfile
     image: auth-platform/auth-edge-service:${VERSION:-latest}
     container_name: auth-edge-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
     ports:
-      - "8080:8080"   # gRPC
-      - "9090:9090"   # Metrics
+      - "8080:8080"
+      - "9090:9090"
     environment:
       <<: *common-env
       SERVICE_NAME: auth-edge-service
@@ -34,24 +215,16 @@ services:
       SESSION_SERVICE_URL: session-identity-core:8082
       IAM_SERVICE_URL: iam-policy-service:8083
       REDIS_URL: redis://redis:6379
-    volumes:
-      - spire-agent-socket:/spire-agent-socket:ro
     depends_on:
-      - redis
-      - token-service
+      redis:
+        condition: service_healthy
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      <<: *healthcheck
+      <<: *common-healthcheck
       test: ["CMD", "/app/auth-edge-service", "health"]
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 64M
+    env_file:
+      - .env
 
   token-service:
     build:
@@ -59,6 +232,10 @@ services:
       dockerfile: deploy/docker/token-service/Dockerfile
     image: auth-platform/token-service:${VERSION:-latest}
     container_name: token-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
     ports:
       - "8081:8081"
       - "9091:9091"
@@ -66,17 +243,17 @@ services:
       <<: *common-env
       SERVICE_NAME: token-service
       REDIS_URL: redis://redis:6379
-      KMS_PROVIDER: ${KMS_PROVIDER:-local}
-      AWS_KMS_KEY_ID: ${AWS_KMS_KEY_ID:-}
-    volumes:
-      - spire-agent-socket:/spire-agent-socket:ro
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      <<: *healthcheck
+      <<: *common-healthcheck
       test: ["CMD", "/app/token-service", "health"]
+    env_file:
+      - .env
 
   session-identity-core:
     build:
@@ -84,30 +261,39 @@ services:
       dockerfile: deploy/docker/session-identity-core/Dockerfile
     image: auth-platform/session-identity-core:${VERSION:-latest}
     container_name: session-identity-core
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
     ports:
-      - "4000:4000"   # HTTP/WebSocket
-      - "8082:8082"   # gRPC
-      - "9092:9092"   # Metrics
+      - "4000:4000"
+      - "8082:8082"
+      - "9092:9092"
     environment:
       <<: *common-env
       SERVICE_NAME: session-identity-core
-      DATABASE_URL: ecto://postgres:postgres@postgres:5432/auth_platform
+      DATABASE_URL: ecto://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/session_db
       REDIS_URL: redis://redis:6379
       TOKEN_SERVICE_URL: token-service:8081
-      MFA_SERVICE_URL: mfa-service:8084
-      IAM_SERVICE_URL: iam-policy-service:8083
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-development_secret_key_base_min_64_chars_long_for_security}
-    volumes:
-      - spire-agent-socket:/spire-agent-socket:ro
     depends_on:
-      - postgres
-      - redis
-      - token-service
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      <<: *healthcheck
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+    env_file:
+      - .env
 
   iam-policy-service:
     build:
@@ -115,21 +301,23 @@ services:
       dockerfile: deploy/docker/iam-policy-service/Dockerfile
     image: auth-platform/iam-policy-service:${VERSION:-latest}
     container_name: iam-policy-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
     ports:
       - "8083:8083"
       - "9093:9093"
     environment:
       <<: *common-env
       SERVICE_NAME: iam-policy-service
-      POLICY_PATH: /app/policies
-    volumes:
-      - spire-agent-socket:/spire-agent-socket:ro
-      - ./policies:/app/policies:ro
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      <<: *healthcheck
+      <<: *common-healthcheck
       test: ["CMD", "/app/iam-policy-service", "health"]
+    env_file:
+      - .env
 
   mfa-service:
     build:
@@ -137,94 +325,269 @@ services:
       dockerfile: deploy/docker/mfa-service/Dockerfile
     image: auth-platform/mfa-service:${VERSION:-latest}
     container_name: mfa-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
     ports:
       - "8084:8084"
       - "9094:9094"
     environment:
       <<: *common-env
       SERVICE_NAME: mfa-service
-      DATABASE_URL: ecto://postgres:postgres@postgres:5432/auth_platform
+      DATABASE_URL: ecto://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/mfa_db
       REDIS_URL: redis://redis:6379
-    volumes:
-      - spire-agent-socket:/spire-agent-socket:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      <<: *healthcheck
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/health"]
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+    env_file:
+      - .env
+
+  email-service:
+    build:
+      context: ../..
+      dockerfile: services/email-service/Dockerfile
+      target: production
+    image: platform/email-service:${VERSION:-latest}
+    container_name: email-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+    ports:
+      - "8086:9000"
+    environment:
+      <<: *common-env
+      SERVICE_NAME: email-service
+      DATABASE_URL: pgsql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/email_db
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      MAILGUN_API_KEY: ${MAILGUN_API_KEY:-}
+      MAILGUN_DOMAIN: ${MAILGUN_DOMAIN:-}
+      AWS_SES_REGION: ${AWS_SES_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      RATE_LIMIT_PER_SENDER: ${RATE_LIMIT_PER_SENDER:-100}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-3600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health/live"]
+    env_file:
+      - .env
+
+  password-recovery-service:
+    build:
+      context: ../..
+      dockerfile: services/password-recovery/Dockerfile
+    image: platform/password-recovery-service:${VERSION:-latest}
+    container_name: password-recovery-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+    ports:
+      - "8087:8080"
+    environment:
+      <<: *common-env
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__PostgreSQL: Host=postgres;Database=password_recovery_db;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      ConnectionStrings__Redis: redis:6379
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
+      Recovery__BaseUrl: ${RECOVERY_BASE_URL:-https://example.com}
+      Recovery__TokenValidityMinutes: "15"
+      TokenCleanup__IntervalMinutes: "60"
+      TokenCleanup__RetentionDays: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+    env_file:
+      - .env
 
   # ============================================
-  # Data Layer
+  # Shared Infrastructure - Data Layer
   # ============================================
+  
   postgres:
     image: postgres:16-alpine
-    container_name: auth-postgres
+    container_name: platform-postgres
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: auth_platform
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./init-scripts/postgres:/docker-entrypoint-initdb.d:ro
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      <<: *healthcheck
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
 
   redis:
     image: redis:7-alpine
-    container_name: auth-redis
+    container_name: platform-redis
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
+      <<: *common-healthcheck
       test: ["CMD", "redis-cli", "ping"]
-      <<: *healthcheck
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:24-alpine
-    container_name: auth-clickhouse
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: platform-elasticsearch
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    environment:
+      - discovery.type=single-node
+      # SECURITY FIX (2026-01-09): Enable Elasticsearch security
+      - xpack.security.enabled=true
+      - xpack.security.enrollment.enabled=false  # Disable enrollment for simpler setup
+      - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD:-changeme}  # Set via .env file
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ports:
-      - "8123:8123"   # HTTP
-      - "9000:9000"   # Native
+      - "9200:9200"
+      - "9300:9300"
     volumes:
-      - clickhouse-data:/var/lib/clickhouse
-      - ./init-scripts/clickhouse:/docker-entrypoint-initdb.d:ro
+      - elasticsearch-data:/usr/share/elasticsearch/data
     networks:
-      - auth-network
+      - platform-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "-", "http://localhost:8123/ping"]
-      <<: *healthcheck
+      <<: *common-healthcheck
+      # Updated health check to use authentication
+      test: ["CMD-SHELL", "curl -u elastic:${ELASTICSEARCH_PASSWORD:-changeme} -f http://localhost:9200/_cluster/health || exit 1"]
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: platform-rabbitmq
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
 
   # ============================================
-  # Observability
+  # Shared Infrastructure - Observability
   # ============================================
+  
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.92.0
-    container_name: otel-collector
+    container_name: platform-otel-collector
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8888:8888"   # Prometheus metrics
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+      - "13133:13133"
     networks:
-      - auth-network
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:13133/"]
 
   prometheus:
     image: prom/prometheus:v2.48.0
-    container_name: prometheus
+    container_name: platform-prometheus
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
     ports:
       - "9099:9090"
     volumes:
@@ -235,47 +598,106 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.enable-lifecycle'
     networks:
-      - auth-network
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
 
   grafana:
     image: grafana/grafana:10.2.2
-    container_name: grafana
+    container_name: platform-grafana
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
-      - auth-network
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
 
   jaeger:
     image: jaegertracing/all-in-one:1.52
-    container_name: jaeger
+    container_name: platform-jaeger
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
     ports:
-      - "16686:16686"  # UI
-      - "14268:14268"  # HTTP collector
+      - "16686:16686"
+      - "14268:14268"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:
-      - auth-network
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:16686/"]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: platform-kibana
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      # SECURITY FIX (2026-01-09): Add Elasticsearch authentication
+      ELASTICSEARCH_USERNAME: elastic
+      ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD:-changeme}
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
 
 # ============================================
 # Networks & Volumes
 # ============================================
 networks:
-  auth-network:
+  platform-network:
     driver: bridge
     ipam:
+      driver: default
       config:
         - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
 
 volumes:
   postgres-data:
   redis-data:
-  clickhouse-data:
+  elasticsearch-data:
+  rabbitmq-data:
   prometheus-data:
   grafana-data:
-  spire-agent-socket:

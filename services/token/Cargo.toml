@@ -1,63 +1,86 @@
 [package]
 name = "token-service"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["Auth Platform Team"]
-description = "JWT signing and token management service"
+description = "JWT signing and token management service with DPoP support"
 
 [dependencies]
-tokio = { version = "1.35", features = ["full"] }
-tonic = { version = "0.10", features = ["tls"] }
-prost = "0.12"
-prost-types = "0.12"
+# Platform libraries
+rust-common = { path = "../../libs/rust/rust-common" }
 
-# JWT and crypto
-jsonwebtoken = "9.2"
-ring = "0.17"
-base64 = "0.21"
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+
+# gRPC
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# JWT
+jsonwebtoken = "9.3"
+
+# Crypto
 sha2 = "0.10"
-rand = "0.8"
-uuid = { version = "1.6", features = ["v4", "serde"] }
+base64 = "0.22"
+ring = "0.17"
+aes-gcm = "0.10"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Redis
-redis = { version = "0.24", features = ["tokio-comp", "cluster-async"] }
-
-# Configuration
-config = "0.14"
-dotenvy = "0.15"
-
-# Logging and tracing
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-
-# Metrics
-prometheus = "0.13"
-
-# Error handling
-thiserror = "1.0"
-anyhow = "1.0"
-
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
-# Property-based testing
-proptest = "1.4"
+# Utilities
+uuid = { version = "1.11", features = ["v4", "serde"] }
+lru = "0.12"
+governor = "0.6"
 
-[build-dependencies]
-tonic-build = "0.10"
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+async-trait = "0.1"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+opentelemetry = "0.27"
+opentelemetry-otlp = "0.27"
+prometheus = "0.13"
+once_cell = "1.19"
+
+# Security
+subtle = "2.6"
+zeroize = { version = "1.8", features = ["derive"] }
+rand = "0.8"
+
+# Configuration
+dotenvy = "0.15"
+
+# Redis
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 [dev-dependencies]
-proptest = "1.4"
+proptest = "1.5"
 tokio-test = "0.4"
-mockall = "0.12"
-# Pact provider verification - Requirements 5.2
-pact_verifier = "1.1"
-pact_models = "1.1"
+wiremock = "0.6"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [[bin]]
 name = "token-service"
 path = "src/main.rs"
+
+[lib]
+name = "token_service"
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

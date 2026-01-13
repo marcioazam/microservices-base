@@ -2,344 +2,189 @@
 
 Ultra-low latency JWT validation and edge routing service for the Auth Platform.
 
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)]()
+## Features
 
-## Overview
+- **JWT Validation**: Type-state pattern ensuring compile-time validation guarantees
+- **SPIFFE/mTLS**: Zero Trust workload identity with certificate-based authentication
+- **Distributed Caching**: JWK cache with Cache_Service integration and local fallback
+- **Crypto-Service Integration**: Centralized cryptographic operations via gRPC with local fallback
+- **Structured Logging**: Logging_Service integration with correlation ID propagation
+- **Circuit Breaker**: rust-common CircuitBreaker for downstream service protection
+- **Graceful Shutdown**: Proper cleanup of connections and in-flight requests
 
-The Auth Edge Service is a high-performance authentication gateway built with modern Rust patterns (2025). It provides:
+## Tech Stack (December 2025)
 
-- **JWT Validation**: Type-state pattern ensuring compile-time safety for token validation
-- **mTLS/SPIFFE**: Zero Trust workload identity with SPIFFE ID verification
-- **Rate Limiting**: Adaptive rate limiting with trust-based adjustments
-- **Circuit Breaker**: Generic Tower-based circuit breaker for resilience
-- **Observability**: OpenTelemetry integration with W3C trace context
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Auth Edge Service                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                    Tower Middleware Stack                         │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌────────────────────┐  │   │
-│  │  │ Tracing │→ │ Timeout │→ │ RateLimit│→ │ Circuit Breaker    │  │   │
-│  │  │ Layer   │  │ Layer   │  │ Layer    │  │ Layer              │  │   │
-│  │  └─────────┘  └─────────┘  └──────────┘  └────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                    │                                     │
-│  ┌─────────────────────────────────▼────────────────────────────────┐   │
-│  │                      Core Services                                │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐  │   │
-│  │  │   JWT Module    │  │  mTLS/SPIFFE    │  │   JWK Cache      │  │   │
-│  │  │                 │  │                 │  │                  │  │   │
-│  │  │ Token<State>    │  │ SpiffeId        │  │ Single-Flight    │  │   │
-│  │  │ - Unvalidated   │  │ SpiffeValidator │  │ Atomic Updates   │  │   │
-│  │  │ - SigValidated  │  │ CertVerifier    │  │ Arc<DecodingKey> │  │   │
-│  │  │ - Validated     │  │                 │  │                  │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └──────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                    │                                     │
-│  ┌─────────────────────────────────▼────────────────────────────────┐   │
-│  │                     gRPC Service Layer                            │   │
-│  │  ValidateToken │ IntrospectToken │ GetServiceIdentity             │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    ▼               ▼               ▼
-            ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-            │   Token     │ │   Session   │ │    IAM      │
-            │   Service   │ │   Service   │ │   Service   │
-            └─────────────┘ └─────────────┘ └─────────────┘
-```
-
-## Tech Stack
-
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Language | Rust | 2021 Edition |
-| Runtime | Tokio | 1.35+ |
-| RPC | Tonic (gRPC) | 0.10+ |
-| JWT | jsonwebtoken | 9.2+ |
-| Crypto | ring | 0.17+ |
-| TLS | rustls | 0.21+ |
-| Middleware | Tower | 0.4+ |
-| Observability | OpenTelemetry | 0.21+ |
-| Testing | proptest | 1.4+ |
-
-## Key Features
-
-### Type-State JWT Validation
-
-Compile-time guarantees prevent using unvalidated tokens:
-
-```rust
-// Parse returns Unvalidated token
-let token = Token::parse(raw_jwt)?;  // Token<Unvalidated>
-
-// Signature validation transitions state
-let token = token.validate_signature(&jwk_cache).await?;  // Token<SignatureValidated>
-
-// Claims validation produces final state
-let token = token.validate_claims(&["sub", "aud"])?;  // Token<Validated>
-
-// Only Validated tokens expose claims
-let subject = token.claims().sub;  // Compile error on other states!
-```
-
-### Generic Circuit Breaker
-
-Tower-compatible circuit breaker with const generics:
-
-```rust
-let service = ServiceBuilder::new()
-    .layer(CircuitBreakerLayer::<5, 3, 30>::new("downstream"))
-    .service(inner_service);
-```
-
-### Adaptive Rate Limiting
-
-Trust-based rate limiting with load shedding:
-
-```rust
-// Trusted clients get 2x limit
-// High load (>80%) reduces limits by 50%
-let decision = rate_limiter.check("client-id").await;
-match decision {
-    RateLimitDecision::Allowed => { /* proceed */ }
-    RateLimitDecision::Denied { retry_after } => { /* return 429 */ }
-}
-```
-
-### Error Handling
-
-Non-exhaustive errors with automatic sanitization:
-
-```rust
-#[non_exhaustive]
-pub enum AuthEdgeError {
-    TokenExpired { expired_at: DateTime<Utc> },
-    ServiceUnavailable { service: String, retry_after: Duration },
-    // Internal errors are automatically sanitized
-    Internal(#[from] anyhow::Error),
-}
-```
+| Component | Version |
+|-----------|---------|
+| Rust Edition | 2024 |
+| Rust Version | 1.85+ |
+| Tokio | 1.42 |
+| Tonic | 0.12 |
+| OpenTelemetry | 0.27 |
+| rustls | 0.23 |
+| thiserror | 2.0 |
+| proptest | 1.5 |
 
 ## Configuration
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `HOST` | Service bind address | `0.0.0.0` |
-| `PORT` | Service port | `50052` |
-| `TOKEN_SERVICE_URL` | Token service endpoint | `http://localhost:50051` |
-| `SESSION_SERVICE_URL` | Session service endpoint | `http://localhost:50053` |
-| `IAM_SERVICE_URL` | IAM service endpoint | `http://localhost:50054` |
-| `JWKS_URL` | JWKS endpoint URL | `http://localhost:50051/.well-known/jwks.json` |
-| `JWKS_CACHE_TTL` | JWK cache TTL (seconds) | `3600` |
-| `CB_FAILURE_THRESHOLD` | Circuit breaker failure threshold | `5` |
-| `CB_TIMEOUT` | Circuit breaker timeout (seconds) | `30` |
+Environment variables:
 
-## Running
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOST` | `0.0.0.0` | Server bind address |
+| `PORT` | `50052` | Server port |
+| `TOKEN_SERVICE_URL` | `http://localhost:50051` | Token service endpoint |
+| `SESSION_SERVICE_URL` | `http://localhost:50053` | Session service endpoint |
+| `IAM_SERVICE_URL` | `http://localhost:50054` | IAM service endpoint |
+| `JWKS_URL` | `http://localhost:50051/.well-known/jwks.json` | JWKS endpoint |
+| `CACHE_SERVICE_URL` | `http://localhost:50060` | Cache service endpoint |
+| `LOGGING_SERVICE_URL` | `http://localhost:50061` | Logging service endpoint |
+| `OTLP_ENDPOINT` | `http://localhost:4317` | OpenTelemetry collector |
+| `JWKS_CACHE_TTL` | `3600` | JWK cache TTL in seconds |
+| `CB_FAILURE_THRESHOLD` | `5` | Circuit breaker failure threshold |
+| `CB_TIMEOUT` | `30` | Circuit breaker timeout seconds |
+| `REQUEST_TIMEOUT` | `30` | Request timeout seconds |
+| `SHUTDOWN_TIMEOUT` | `30` | Graceful shutdown timeout |
+| `ALLOWED_SPIFFE_DOMAINS` | `` | Comma-separated SPIFFE domains |
+| `CACHE_ENCRYPTION_KEY` | `` | 32-byte hex-encoded AES key (deprecated, use CRYPTO_SERVICE) |
+| `CRYPTO_SERVICE_URL` | `http://localhost:50051` | Crypto service gRPC endpoint |
+| `CRYPTO_KEY_NAMESPACE` | `auth-edge` | Key namespace for isolation |
+| `CRYPTO_FALLBACK_ENABLED` | `true` | Enable local fallback when crypto-service unavailable |
+| `CRYPTO_TIMEOUT_SECS` | `5` | Crypto service request timeout |
+
+## Building
 
 ```bash
-# Development
-cargo run
-
-# Production build
 cargo build --release
-./target/release/auth-edge-service
-
-# With environment variables
-HOST=0.0.0.0 PORT=50052 JWKS_URL=https://auth.example.com/.well-known/jwks.json \
-  ./target/release/auth-edge-service
 ```
 
 ## Testing
 
 ```bash
-# Run all tests
+# Unit and integration tests
 cargo test
 
-# Run with coverage report
-cargo tarpaulin --out Html --output-dir coverage
+# Integration tests only
+cargo test --test crypto_integration_test
 
-# Unit tests only
-cargo test --lib
+# Property-based tests (100 iterations per property)
+cargo test property_tests
 
-# Property-based tests (100 iterations each)
-cargo test --test property_tests
-
-# Contract tests (Pact)
-cargo test --test pact_consumer_tests
-
-# Run specific test
-cargo test test_circuit_breaker_state_machine
+# Coverage
+cargo tarpaulin --out Html
 ```
 
-### Test Coverage
+### Integration Tests
 
-The project maintains **90%+ test coverage** with:
+The `tests/integration/` directory contains integration tests for crypto module functionality:
 
-- **Unit Tests**: Core logic validation for each module
-- **Property-Based Tests**: Invariant verification with proptest
-- **Contract Tests**: Pact consumer contracts for downstream services
+| Test | Description |
+|------|-------------|
+| `test_fallback_encryption_round_trip` | Verifies local fallback encrypt/decrypt cycle |
+| `test_aad_mismatch_fails` | Ensures AAD binding is enforced |
+| `test_key_rotation_continuity` | Validates keys remain valid during rotation window |
+| `test_dek_caching` | Tests DEK caching for fallback mode |
+| `test_config_validation` | Verifies invalid configs are rejected |
+| `test_error_sanitization` | Confirms key material is redacted from errors |
+| `test_pending_operations_queue` | Tests operation queuing for service recovery |
+| `test_metrics_recording` | Validates Prometheus metrics recording |
 
-| Module | Coverage |
-|--------|----------|
-| `error` | 95% |
-| `jwt/claims` | 92% |
-| `jwt/validator` | 90% |
-| `jwt/jwk_cache` | 88% |
-| `mtls/spiffe` | 94% |
-| `mtls/verifier` | 85% |
-| `circuit_breaker` | 92% |
-| `rate_limiter` | 90% |
-| `config` | 85% |
+### Property-Based Tests
 
-## API Reference
+The crypto module includes property-based tests (using `proptest`) that validate correctness properties:
 
-See [`proto/auth_edge.proto`](../proto/auth_edge.proto) for the complete gRPC service definition.
+| Property | Description |
+|----------|-------------|
+| Encryption Round-Trip | `decrypt(encrypt(P, A), A) == P` for any plaintext and AAD |
+| Fallback Consistency | Local fallback produces valid AES-256-GCM ciphertext |
+| AAD Binding | Decryption fails if AAD doesn't match |
+| No Key Material Exposure | Error messages never contain key material |
+| Configuration Validation | Invalid configs are rejected before use |
+| Key Rotation Continuity | Old keys remain valid during rotation window |
 
-### ValidateToken
+## Architecture
 
-Validates a JWT and returns extracted claims.
+```
+src/
+├── config.rs          # Type-safe configuration
+├── error.rs           # PlatformError integration
+├── crypto/            # Crypto-service integration
+│   ├── cache_integration.rs # EncryptedCacheClient wrapper
+│   ├── client.rs      # CryptoClient gRPC client
+│   ├── config.rs      # CryptoClientConfig
+│   ├── error.rs       # CryptoError types
+│   ├── fallback.rs    # FallbackHandler for degraded mode
+│   ├── key_manager.rs # KeyManager for KEK/DEK lifecycle
+│   ├── metrics.rs     # CryptoMetrics (Prometheus)
+│   └── tests.rs       # Property-based tests
+├── grpc/              # gRPC service implementation
+├── jwt/               # Type-state JWT validation
+│   ├── claims.rs      # Claims with has_claim
+│   ├── jwk_cache.rs   # Distributed JWK cache
+│   ├── token.rs       # Type-state Token<S>
+│   └── validator.rs   # JwtValidator
+├── middleware/        # Tower middleware stack
+├── mtls/              # SPIFFE/mTLS support
+├── observability/     # Telemetry and logging
+│   ├── logging.rs     # AuthEdgeLogger
+│   ├── metrics.rs     # Prometheus metrics
+│   └── telemetry.rs   # OpenTelemetry setup
+├── rate_limiter/      # Rate limiting
+└── shutdown.rs        # Graceful shutdown
 
-```protobuf
-rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+tests/
+├── integration/
+│   ├── crypto_integration_test.rs  # Crypto module integration tests
+│   ├── mod.rs
+│   └── validation_flow.rs
+├── contract/          # Contract tests
+├── property/          # Property-based tests
+└── unit/              # Unit tests
 
-message ValidateTokenRequest {
-  string token = 1;
-  repeated string required_claims = 2;
-}
-
-message ValidateTokenResponse {
-  bool valid = 1;
-  string subject = 2;
-  map<string, string> claims = 3;
-  string error_code = 4;
-  string error_message = 5;
-}
+proto/
+└── crypto_service.proto  # Crypto-service gRPC contract
 ```
 
-### IntrospectToken
+## Crypto-Service Integration
 
-RFC 7662 compliant token introspection.
+The auth-edge service delegates cryptographic operations to the centralized `crypto-service` via gRPC:
 
-```protobuf
-rpc IntrospectToken(IntrospectRequest) returns (IntrospectResponse);
-```
+- **Symmetric Encryption**: AES-GCM encrypt/decrypt for cache data
+- **Key Management**: Centralized KEK/DEK lifecycle with automatic rotation
+- **Fallback Mode**: Local AES-256-GCM encryption when crypto-service is unavailable
+- **Observability**: Prometheus metrics for latency, errors, and fallback status
+- **EncryptedCacheClient**: Wrapper that transparently encrypts/decrypts cache data using CryptoClient
 
-### GetServiceIdentity
+### EncryptedCacheClient
 
-Extracts SPIFFE ID from mTLS certificate.
-
-```protobuf
-rpc GetServiceIdentity(IdentityRequest) returns (IdentityResponse);
-```
-
-## Security Features
-
-### Zero Trust Architecture
-
-- All requests require identity verification regardless of network origin
-- SPIFFE/SPIRE integration for workload identity
-- mTLS for all service-to-service communication
-
-### Token Security
-
-- JWK rotation with automatic cache refresh
-- Single-flight pattern prevents thundering herd on cache miss
-- Constant-time signature verification
-
-### Error Sanitization
-
-- Sensitive information (passwords, keys, tokens) automatically removed from error responses
-- Correlation IDs for debugging without exposing internals
-- Non-exhaustive enums for forward compatibility
-
-### Rate Limiting
-
-- Per-client adaptive limits
-- Trust-based multipliers
-- Load-based reduction during high traffic
-
-## Observability
-
-### Tracing
+The `EncryptedCacheClient` wraps the standard `CacheClient` to provide transparent encryption:
 
 ```rust
-// All requests include correlation ID
-// W3C Trace Context propagation
-// Structured span attributes
+let crypto = Arc::new(CryptoClient::new(crypto_config).await?);
+let cache = EncryptedCacheClient::new(cache_config, crypto).await?;
+
+// Data is automatically encrypted before storage
+cache.set("key", b"secret data", Some(Duration::from_secs(3600)), correlation_id).await?;
+
+// Data is automatically decrypted after retrieval
+let data = cache.get("key", correlation_id).await?;
 ```
+
+Features:
+- AAD binding with `namespace:key` format for integrity
+- Automatic serialization/deserialization of encrypted data
+- Delegates to CryptoClient (with fallback support)
 
 ### Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `auth_edge_requests_total` | Counter | Total requests by status |
-| `auth_edge_request_duration_seconds` | Histogram | Request latency |
-| `auth_edge_circuit_breaker_state` | Gauge | Circuit breaker state |
-| `auth_edge_rate_limit_remaining` | Gauge | Remaining rate limit quota |
-| `auth_edge_jwk_cache_hits` | Counter | JWK cache hit rate |
-
-### Health Checks
-
-```bash
-# gRPC health check
-grpcurl -plaintext localhost:50052 grpc.health.v1.Health/Check
-
-# Readiness (includes downstream checks)
-grpcurl -plaintext localhost:50052 auth.edge.AuthEdgeService/CheckHealth
-```
-
-## Development
-
-### Prerequisites
-
-- Rust 1.75+
-- Protocol Buffers compiler (`protoc`)
-- Docker (for integration tests)
-
-### Building
-
-```bash
-# Debug build
-cargo build
-
-# Release build with optimizations
-cargo build --release
-
-# Generate protobuf code
-cargo build --build-plan
-```
-
-### Code Quality
-
-```bash
-# Format code
-cargo fmt
-
-# Lint
-cargo clippy -- -D warnings
-
-# Security audit
-cargo audit
-```
+| `crypto_client_requests_total` | Counter | Total requests by operation and status |
+| `crypto_client_latency_seconds` | Histogram | Request latency by operation |
+| `crypto_client_fallback_active` | Gauge | 1 if operating in fallback mode |
+| `crypto_key_rotation_total` | Counter | Key rotation events |
+| `crypto_client_errors_total` | Counter | Errors by operation and type |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Ensure tests pass with 90%+ coverage
-4. Submit a pull request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+Proprietary - Auth Platform

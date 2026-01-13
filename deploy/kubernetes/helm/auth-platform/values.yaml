@@ -1,10 +1,11 @@
 # Auth Platform Helm Values
-# Production-ready configuration
+# Production-ready configuration - December 2025 Best Practices
 
 global:
   imageRegistry: ""
   imagePullSecrets: []
   storageClass: ""
+  environment: production  # development, staging, production
   
   # SPIFFE/SPIRE configuration
   spiffe:
@@ -28,7 +29,7 @@ authEdgeService:
   
   image:
     repository: auth-platform/auth-edge-service
-    tag: "latest"
+    tag: ""  # Must be set explicitly in production
     pullPolicy: IfNotPresent
   
   service:
@@ -55,18 +56,27 @@ authEdgeService:
     enabled: true
     minAvailable: 2
   
+  probes:
+    liveness:
+      grpc: true
+      port: 8080
+      initialDelaySeconds: 15
+      periodSeconds: 20
+    readiness:
+      grpc: true
+      port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    startup:
+      grpc: true
+      port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      failureThreshold: 30
+  
   nodeSelector: {}
   tolerations: []
-  affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchLabels:
-                app: auth-edge-service
-            topologyKey: kubernetes.io/hostname
-
+  
   config:
     jwkCacheTtlSeconds: 3600
     circuitBreaker:
@@ -83,7 +93,7 @@ tokenService:
   
   image:
     repository: auth-platform/token-service
-    tag: "latest"
+    tag: ""
     pullPolicy: IfNotPresent
   
   service:
@@ -104,13 +114,29 @@ tokenService:
     minReplicas: 3
     maxReplicas: 15
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  probes:
+    liveness:
+      grpc: true
+      port: 8081
+    readiness:
+      grpc: true
+      port: 8081
+    startup:
+      grpc: true
+      port: 8081
   
   config:
-    accessTokenTtlSeconds: 900      # 15 minutes
+    accessTokenTtlSeconds: 900
     refreshTokenTtlDays: 7
     signingAlgorithm: "ES256"
     kms:
-      provider: "aws"               # aws, gcp, azure, local
+      provider: "aws"
       keyId: ""
 
 # ============================================
@@ -122,7 +148,7 @@ sessionIdentityCore:
   
   image:
     repository: auth-platform/session-identity-core
-    tag: "latest"
+    tag: ""
     pullPolicy: IfNotPresent
   
   service:
@@ -144,6 +170,22 @@ sessionIdentityCore:
     minReplicas: 3
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  probes:
+    liveness:
+      path: /health
+      port: 4000
+    readiness:
+      path: /ready
+      port: 4000
+    startup:
+      path: /health
+      port: 4000
   
   config:
     sessionTtlHours: 24
@@ -158,7 +200,7 @@ iamPolicyService:
   
   image:
     repository: auth-platform/iam-policy-service
-    tag: "latest"
+    tag: ""
     pullPolicy: IfNotPresent
   
   service:
@@ -179,6 +221,22 @@ iamPolicyService:
     minReplicas: 3
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  probes:
+    liveness:
+      grpc: true
+      port: 8083
+    readiness:
+      grpc: true
+      port: 8083
+    startup:
+      grpc: true
+      port: 8083
   
   config:
     policyReloadIntervalSeconds: 60
@@ -193,7 +251,7 @@ mfaService:
   
   image:
     repository: auth-platform/mfa-service
-    tag: "latest"
+    tag: ""
     pullPolicy: IfNotPresent
   
   service:
@@ -214,6 +272,22 @@ mfaService:
     minReplicas: 2
     maxReplicas: 8
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  probes:
+    liveness:
+      grpc: true
+      port: 8084
+    readiness:
+      grpc: true
+      port: 8084
+    startup:
+      grpc: true
+      port: 8084
   
   config:
     totpWindowSize: 1
@@ -221,43 +295,43 @@ mfaService:
     pushTimeout: 60
 
 # ============================================
-# Infrastructure Dependencies
+# Network Policy
 # ============================================
-postgresql:
+networkPolicy:
   enabled: true
-  auth:
-    postgresPassword: ""
-    database: auth_platform
-  primary:
-    persistence:
-      size: 50Gi
-    resources:
-      limits:
-        cpu: 2000m
-        memory: 4Gi
-      requests:
-        cpu: 500m
-        memory: 1Gi
+  gatewayNamespace: gateway-system
+  observabilityNamespace: observability
+  dataNamespace: data-system
 
-redis:
-  enabled: true
-  architecture: replication
-  auth:
-    enabled: true
-    password: ""
-  master:
-    persistence:
-      size: 10Gi
-  replica:
-    replicaCount: 2
-    persistence:
-      size: 10Gi
+# ============================================
+# External Secrets
+# ============================================
+# SECURITY: External Secrets enabled by default (2026-01-09)
+# Secrets are now managed via Vault/External Secrets Operator
+# See: deploy/kubernetes/SECRETS_MANAGEMENT.md
+externalSecrets:
+  enabled: true  # ✅ Changed from false to true for security
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  secretPath: auth-platform/secrets
 
-kafka:
+# ============================================
+# Service Monitor
+# ============================================
+serviceMonitor:
   enabled: true
-  replicaCount: 3
-  persistence:
-    size: 50Gi
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
+
+# ============================================
+# Pod Monitor
+# ============================================
+podMonitor:
+  enabled: false
 
 # ============================================
 # Ingress Configuration
@@ -280,24 +354,17 @@ ingress:
         - auth.example.com
 
 # ============================================
-# Service Mesh / SPIFFE
+# Service Mesh / Linkerd
 # ============================================
-spire:
+linkerd:
   enabled: true
-  server:
-    trustDomain: "auth-platform.local"
-  agent:
-    socketPath: "/spire-agent-socket/spire-agent.sock"
+  inject: enabled
 
 # ============================================
-# Monitoring
+# Service Account
 # ============================================
-serviceMonitor:
-  enabled: true
-  interval: 30s
-  scrapeTimeout: 10s
-  labels:
-    release: prometheus
-
-podMonitor:
-  enabled: false
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false

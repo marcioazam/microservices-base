@@ -1,0 +1,165 @@
+# Grafana Dashboard Provisioning
+# Requirements 8.2, 8.7
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'auth-platform'
+        orgId: 1
+        folder: 'Auth Platform'
+        folderUid: 'auth-platform'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/auth-platform
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: 15s
+          httpMethod: POST
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: false
+        jsonData:
+          maxLines: 1000
+
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        editable: false
+        jsonData:
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['service.name']
+            mappedTags: [{ key: 'service.name', value: 'service' }]
+            mapTagNamesEnabled: true
+            filterByTraceID: true
+            filterBySpanID: true
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          search:
+            hide: false
+          lokiSearch:
+            datasourceUid: loki
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-overview
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  auth-platform-overview.json: |
+    {
+      "dashboard": {
+        "title": "Auth Platform Overview",
+        "uid": "auth-platform-overview",
+        "tags": ["auth-platform"],
+        "timezone": "browser",
+        "refresh": "30s",
+        "panels": [
+          {
+            "title": "Request Rate",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+            "targets": [{
+              "expr": "sum(rate(http_requests_total{job=~\"auth-.*\"}[5m]))",
+              "legendFormat": "req/s"
+            }]
+          },
+          {
+            "title": "Error Rate",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+            "targets": [{
+              "expr": "sum(rate(http_requests_total{job=~\"auth-.*\",code=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=~\"auth-.*\"}[5m])) * 100",
+              "legendFormat": "%"
+            }],
+            "fieldConfig": {
+              "defaults": {
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 0.1},
+                    {"color": "red", "value": 1}
+                  ]
+                },
+                "unit": "percent"
+              }
+            }
+          },
+          {
+            "title": "P99 Latency",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+            "targets": [{
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=~\"auth-.*\"}[5m])) by (le))",
+              "legendFormat": "P99"
+            }],
+            "fieldConfig": {
+              "defaults": {"unit": "s"}
+            }
+          },
+          {
+            "title": "Active Pods",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+            "targets": [{
+              "expr": "count(kube_pod_status_phase{namespace=\"auth-system\", phase=\"Running\"})",
+              "legendFormat": "pods"
+            }]
+          },
+          {
+            "title": "Request Rate by Service",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+            "targets": [{
+              "expr": "sum(rate(http_requests_total{job=~\"auth-.*\"}[5m])) by (service)",
+              "legendFormat": "{{service}}"
+            }]
+          },
+          {
+            "title": "Latency Distribution",
+            "type": "heatmap",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+            "targets": [{
+              "expr": "sum(rate(http_request_duration_seconds_bucket{job=~\"auth-.*\"}[5m])) by (le)",
+              "format": "heatmap"
+            }]
+          }
+        ]
+      }
+    }

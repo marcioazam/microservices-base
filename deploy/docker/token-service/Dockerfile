@@ -1,5 +1,6 @@
 # Token Service - Rust Multi-Stage Build
 # Cryptographic operations with KMS integration
+# Build context: repository root (../../)
 
 # ============================================
 # Stage 1: Build Environment
@@ -16,13 +17,13 @@ RUN apk add --no-cache \
 
 WORKDIR /build
 
-COPY auth/token-service/Cargo.toml auth/token-service/Cargo.lock ./
-COPY proto/ ../proto/
+COPY services/token/Cargo.toml services/token/Cargo.lock ./
+COPY api/proto/ ../proto/
 
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release --locked && rm -rf src
 
-COPY auth/token-service/src ./src
+COPY services/token/src ./src
 
 RUN touch src/main.rs && \
     RUSTFLAGS="-C target-feature=+crt-static" \

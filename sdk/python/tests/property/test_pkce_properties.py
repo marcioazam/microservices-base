@@ -1,4 +1,4 @@
-"""
+"""Property-based tests for PKCE implementation - December 2025 State of Art
 Property-based tests for PKCE module.
 
 **Feature: python-sdk-modernization, Property 8: PKCE Verifier Length**

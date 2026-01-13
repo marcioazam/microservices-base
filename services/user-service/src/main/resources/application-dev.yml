@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/user_service_dev
+  jpa:
+    show-sql: true
+  kafka:
+    bootstrap-servers: localhost:9092
+
+logging:
+  level:
+    com.authplatform.usersvc: DEBUG
+    org.springframework.security: DEBUG
+
+app:
+  platform:
+    crypto-service:
+      enabled: false
+    cache-service:
+      enabled: false
+    logging-service:
+      enabled: false

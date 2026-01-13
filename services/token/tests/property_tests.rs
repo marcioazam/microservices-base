@@ -78,7 +78,7 @@ proptest! {
         scopes in arb_scopes(),
     ) {
         let (encoding_key, decoding_key) = test_keys();
-        let serializer = JwtSerializer { algorithm: Algorithm::HS256 };
+        let serializer = JwtSerializer::new(Algorithm::HS256);
 
         let mut builder = JwtBuilder::new(issuer.clone())
             .subject(subject.clone())
@@ -130,7 +130,7 @@ proptest! {
         prop_assert!(refresh_ttl > access_ttl);
 
         let (encoding_key, _) = test_keys();
-        let serializer = JwtSerializer { algorithm: Algorithm::HS256 };
+        let serializer = JwtSerializer::new(Algorithm::HS256);
 
         // Build access token
         let access_claims = JwtBuilder::new("test-issuer".to_string())

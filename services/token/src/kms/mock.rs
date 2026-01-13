@@ -1,30 +1,46 @@
+//! Mock KMS implementation for testing and development.
+
 use crate::error::TokenError;
-use crate::jwt::signer::JwtSigner;
+use crate::kms::KmsSigner;
 use async_trait::async_trait;
 use jsonwebtoken::EncodingKey;
 use ring::hmac;
 
+/// Mock KMS for testing and development.
 pub struct MockKms {
     key_id: String,
     secret: Vec<u8>,
+    algorithm: String,
 }
 
 impl MockKms {
-    pub fn new(key_id: String) -> Self {
-        MockKms {
-            key_id,
+    /// Create a new mock KMS with default secret.
+    #[must_use]
+    pub fn new(key_id: impl Into<String>) -> Self {
+        Self {
+            key_id: key_id.into(),
             secret: b"mock-kms-secret-key-for-testing-purposes-only!".to_vec(),
+            algorithm: "HS256".to_string(),
         }
     }
 
+    /// Set a custom secret.
+    #[must_use]
     pub fn with_secret(mut self, secret: Vec<u8>) -> Self {
         self.secret = secret;
+        self
+    }
+
+    /// Set the algorithm.
+    #[must_use]
+    pub fn with_algorithm(mut self, algorithm: impl Into<String>) -> Self {
+        self.algorithm = algorithm.into();
         self
     }
 }
 
 #[async_trait]
-impl JwtSigner for MockKms {
+impl KmsSigner for MockKms {
     async fn sign(&self, data: &[u8]) -> Result<Vec<u8>, TokenError> {
         let key = hmac::Key::new(hmac::HMAC_SHA256, &self.secret);
         let signature = hmac::sign(&key, data);
@@ -35,12 +51,12 @@ impl JwtSigner for MockKms {
         Ok(EncodingKey::from_secret(&self.secret))
     }
 
-    fn get_key_id(&self) -> &str {
+    fn key_id(&self) -> &str {
         &self.key_id
     }
 
-    fn get_algorithm(&self) -> &str {
-        "HS256"
+    fn algorithm(&self) -> &str {
+        &self.algorithm
     }
 }
 
@@ -50,24 +66,37 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_kms_sign() {
-        let kms = MockKms::new("test-key".to_string());
+        let kms = MockKms::new("test-key");
         let data = b"test data";
-        
+
         let sig1 = kms.sign(data).await.unwrap();
         let sig2 = kms.sign(data).await.unwrap();
-        
-        // Same data should produce same signature
-        assert_eq!(sig1, sig2);
+
+        assert_eq!(sig1, sig2, "Same data should produce same signature");
     }
 
     #[tokio::test]
     async fn test_mock_kms_different_data() {
-        let kms = MockKms::new("test-key".to_string());
-        
+        let kms = MockKms::new("test-key");
+
         let sig1 = kms.sign(b"data1").await.unwrap();
         let sig2 = kms.sign(b"data2").await.unwrap();
-        
-        // Different data should produce different signatures
-        assert_ne!(sig1, sig2);
+
+        assert_ne!(sig1, sig2, "Different data should produce different signatures");
+    }
+
+    #[test]
+    fn test_mock_kms_encoding_key() {
+        let kms = MockKms::new("test-key");
+        let key = kms.get_encoding_key();
+        assert!(key.is_ok());
+    }
+
+    #[test]
+    fn test_mock_kms_metadata() {
+        let kms = MockKms::new("my-key").with_algorithm("HS384");
+
+        assert_eq!(kms.key_id(), "my-key");
+        assert_eq!(kms.algorithm(), "HS384");
     }
 }
