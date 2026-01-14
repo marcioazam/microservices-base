@@ -138,157 +138,157 @@ This implementation plan breaks down the File Upload Service into discrete, incr
     - **Validates: Requirements 8.2, 13.2**
 
 - [-] 9. Rate Limiting
-  - [-] 9.1 Implement rate limiter
+  - [x] 9.1 Implement rate limiter
     - Create `internal/ratelimit/limiter.go` with Redis-based rate limiting
     - Implement per-tenant rate limiting
     - Use sliding window algorithm
     - _Requirements: 10.2_
 
-  - [ ] 9.2 Implement rate limit middleware
+  - [x] 9.2 Implement rate limit middleware
     - Create `internal/ratelimit/middleware.go` with Gin middleware
     - Return 429 with Retry-After header when exceeded
     - _Requirements: 10.3_
 
-  - [ ] 9.3 Write property test for rate limiting
+  - [x] 9.3 Write property test for rate limiting
     - **Property 11: Rate Limiting Enforcement**
     - **Validates: Requirements 10.2, 10.3**
 
-- [ ] 10. Audit Logging
-  - [ ] 10.1 Implement audit logger
+- [-] 10. Audit Logging
+  - [x] 10.1 Implement audit logger
     - Create `internal/audit/logger.go` for audit log creation
     - Implement file operation logging (upload, access, delete)
     - Ensure no PII in logs
     - _Requirements: 12.1, 12.2, 12.3_
 
-  - [ ] 10.2 Write property test for audit log completeness
+  - [x] 10.2 Write property test for audit log completeness
     - **Property 14: Audit Log Completeness**
     - **Validates: Requirements 12.1, 12.2**
 
-  - [ ] 10.3 Write property test for audit log security
+  - [x] 10.3 Write property test for audit log security
     - **Property 15: Audit Log Security**
     - **Validates: Requirements 12.3**
 
-- [ ] 11. Checkpoint - Security Layer Complete
+- [x] 11. Checkpoint - Security Layer Complete
   - Ensure all auth and audit tests pass
   - Verify JWT validation works with test tokens
   - Ask the user if questions arise
 
-- [ ] 12. Upload API Implementation
-  - [ ] 12.1 Implement upload handler
+- [x] 12. Upload API Implementation
+  - [x] 12.1 Implement upload handler
     - Create `internal/api/handlers/upload.go` with upload endpoint
     - Implement multipart form parsing
     - Wire validation, hashing, storage, metadata
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-  - [ ] 12.2 Implement deduplication logic
+  - [x] 12.2 Implement deduplication logic
     - Add hash-based deduplication in upload handler
     - Return existing file reference if duplicate
     - _Requirements: 5.2_
 
-  - [ ] 12.3 Write property test for upload response completeness
+  - [x] 12.3 Write property test for upload response completeness
     - **Property 1: Upload Response Completeness**
     - **Validates: Requirements 1.2, 5.4**
 
-  - [ ] 12.4 Write property test for file deduplication
+  - [x] 12.4 Write property test for file deduplication
     - **Property 6: File Deduplication**
     - **Validates: Requirements 5.2**
 
-- [ ] 13. Chunked Upload Implementation
-  - [ ] 13.1 Implement chunk manager
+- [x] 13. Chunked Upload Implementation
+  - [x] 13.1 Implement chunk manager
     - Create `internal/chunk/manager.go` implementing ChunkManager interface
     - Use Redis for session state
     - Implement chunk storage and assembly
     - _Requirements: 6.1, 6.2, 6.3, 6.5_
 
-  - [ ] 13.2 Implement chunked upload endpoints
+  - [x] 13.2 Implement chunked upload endpoints
     - Create `internal/api/handlers/chunk.go` with init, upload, complete endpoints
     - Implement session management
     - _Requirements: 6.1, 6.2, 6.4_
 
-  - [ ] 13.3 Write property test for chunked upload round-trip
+  - [x] 13.3 Write property test for chunked upload round-trip
     - **Property 7: Chunked Upload Round-Trip**
     - **Validates: Requirements 6.3**
 
-- [ ] 14. Async Processing
-  - [ ] 14.1 Implement async processor
+- [x] 14. Async Processing
+  - [x] 14.1 Implement async processor
     - Create `internal/async/processor.go` implementing AsyncProcessor interface
     - Use goroutine worker pool
     - Implement task queuing and execution
     - _Requirements: 7.1, 7.2, 7.4_
 
-  - [ ] 14.2 Implement malware scanner integration
+  - [x] 14.2 Implement malware scanner integration
     - Create `internal/scanner/clamav.go` implementing MalwareScanner interface
     - Integrate with ClamAV via clamd protocol
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-  - [ ] 14.3 Write property test for async processing independence
+  - [x] 14.3 Write property test for async processing independence
     - **Property 8: Async Processing Independence**
     - **Validates: Requirements 7.3**
 
-- [ ] 15. Checkpoint - Upload Flow Complete
+- [x] 15. Checkpoint - Upload Flow Complete
   - Ensure all upload tests pass
   - Verify end-to-end upload flow works
   - Ask the user if questions arise
 
-- [ ] 16. File Management APIs
-  - [ ] 16.1 Implement file retrieval endpoints
+- [x] 16. File Management APIs
+  - [x] 16.1 Implement file retrieval endpoints
     - Create `internal/api/handlers/files.go` with get, list, search endpoints
     - Implement pagination and filtering
     - _Requirements: 13.1, 13.2, 13.3, 13.4_
 
-  - [ ] 16.2 Implement file deletion
+  - [x] 16.2 Implement file deletion
     - Add soft-delete endpoint
     - Implement retention period cleanup job
     - _Requirements: 14.1, 14.2, 14.3, 14.4_
 
-  - [ ] 16.3 Implement download URL generation
+  - [x] 16.3 Implement download URL generation
     - Add endpoint for signed download URLs
     - Support configurable expiration
     - _Requirements: 4.2_
 
-  - [ ] 16.4 Write property test for soft-delete behavior
+  - [x] 16.4 Write property test for soft-delete behavior
     - **Property 18: Soft-Delete Behavior**
     - **Validates: Requirements 14.1**
 
-  - [ ] 16.5 Write property test for delete authorization
+  - [x] 16.5 Write property test for delete authorization
     - **Property 19: Delete Authorization**
     - **Validates: Requirements 14.3**
 
-- [ ] 17. Concurrency and Performance
-  - [ ] 17.1 Implement concurrent upload handling
+- [x] 17. Concurrency and Performance
+  - [x] 17.1 Implement concurrent upload handling
     - Add worker pool for storage operations
     - Implement connection pooling for database
     - _Requirements: 10.1, 10.4_
 
-  - [ ] 17.2 Write property test for concurrent upload handling
+  - [x] 17.2 Write property test for concurrent upload handling
     - **Property 12: Concurrent Upload Handling**
     - **Validates: Requirements 10.1**
 
-- [ ] 18. API Router and Server
-  - [ ] 18.1 Set up Gin router
+- [x] 18. API Router and Server
+  - [x] 18.1 Set up Gin router
     - Create `internal/api/router.go` with route definitions
     - Wire all handlers and middleware
     - Add health check endpoint
     - _Requirements: 11.4_
 
-  - [ ] 18.2 Create main entry point
+  - [x] 18.2 Create main entry point
     - Create `cmd/server/main.go` with server initialization
     - Implement graceful shutdown
     - Wire dependency injection
     - _Requirements: Server setup_
 
-- [ ] 19. Docker and Deployment
-  - [ ] 19.1 Create Dockerfile
+- [x] 19. Docker and Deployment
+  - [x] 19.1 Create Dockerfile
     - Create `services/file-upload/Dockerfile` with multi-stage build
     - Optimize for small image size
     - _Requirements: Deployment_
 
-  - [ ] 19.2 Add to docker-compose
+  - [x] 19.2 Add to docker-compose
     - Update `deploy/docker/docker-compose.yml` with file-upload service
     - Add environment configuration
     - _Requirements: Deployment_
 
-- [ ] 20. Final Checkpoint - Service Complete
+- [x] 20. Final Checkpoint - Service Complete
   - Ensure all tests pass (unit, property, integration)
   - Verify Docker build succeeds
   - Run full end-to-end test

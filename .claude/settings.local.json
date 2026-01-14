@@ -25,7 +25,9 @@
       "Bash(tee:*)",
       "Bash(cargo doc:*)",
       "Bash(cargo fix:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "WebFetch(domain:erlef.github.io)",
+      "Bash(git add:*)"
     ]
   }
 }

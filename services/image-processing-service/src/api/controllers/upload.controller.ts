@@ -6,6 +6,7 @@ import { imageService } from '@services/image';
 import { AppError } from '@domain/errors';
 import { sendSuccess, sendError } from '@shared/utils/response';
 import { config } from '@config/index';
+import { UrlValidator } from '@security/url-validator';
 
 interface UploadFromUrlBody {
   url: string;
@@ -159,23 +160,58 @@ export class UploadController {
 
   private async fetchImageFromUrl(url: string): Promise<Buffer> {
     try {
-      const response = await fetch(url);
+      // SSRF Protection: Validate URL before making request
+      // Blocks private IPs, cloud metadata endpoints, redirects, and non-HTTP protocols
+      const validatedUrl = await UrlValidator.validate(url);
 
-      if (!response.ok) {
-        throw AppError.invalidImage(`Failed to fetch image: ${response.statusText}`);
-      }
+      // Create safe fetch options with timeout and redirect protection
+      const fetchOptions = UrlValidator.createSafeFetchOptions(10000);
 
+      // Make request to validated URL
+      const response = await fetch(validatedUrl.toString(), fetchOptions);
+
+      // Validate response to prevent redirect-based SSRF
+      UrlValidator.validateResponse(response);
+
+      // Validate content type
       const contentType = response.headers.get('content-type');
-      if (contentType && !ALLOWED_MIME_TYPES.some((type) => contentType.includes(type))) {
-        throw AppError.invalidImage(`Invalid content type: ${contentType}`);
+      if (!contentType || !ALLOWED_MIME_TYPES.some((type) => contentType.includes(type))) {
+        throw AppError.invalidImage(
+          `Invalid content type: ${contentType}. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}`
+        );
       }
 
+      // Validate content length to prevent memory exhaustion
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) {
+        const size = parseInt(contentLength, 10);
+        if (size > config.storage.maxFileSizeBytes) {
+          throw AppError.fileTooLarge(
+            `Image size (${size} bytes) exceeds maximum allowed size of ${config.storage.maxFileSizeBytes} bytes`
+          );
+        }
+      }
+
+      // Download with size limit enforcement
       const arrayBuffer = await response.arrayBuffer();
+
+      if (arrayBuffer.byteLength > config.storage.maxFileSizeBytes) {
+        throw AppError.fileTooLarge(
+          `Image size (${arrayBuffer.byteLength} bytes) exceeds maximum allowed size of ${config.storage.maxFileSizeBytes} bytes`
+        );
+      }
+
       return Buffer.from(arrayBuffer);
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
       }
+
+      // Handle abort errors (timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw AppError.invalidImage('Request timeout: failed to fetch image within 10 seconds');
+      }
+
       throw AppError.invalidImage('Failed to fetch image from URL');
     }
   }

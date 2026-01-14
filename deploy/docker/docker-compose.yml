@@ -431,6 +431,58 @@ services:
     env_file:
       - .env
 
+  file-upload-service:
+    build:
+      context: ../..
+      dockerfile: services/file-upload/Dockerfile
+    image: platform/file-upload-service:${VERSION:-latest}
+    container_name: file-upload-service
+    <<: *common-security
+    logging: *common-logging
+    deploy:
+      <<: *common-deploy
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    ports:
+      - "8088:8080"
+    environment:
+      <<: *common-env
+      FILE_UPLOAD_SERVER_PORT: "8080"
+      FILE_UPLOAD_DATABASE_HOST: postgres
+      FILE_UPLOAD_DATABASE_PORT: "5432"
+      FILE_UPLOAD_DATABASE_USER: ${POSTGRES_USER:-postgres}
+      FILE_UPLOAD_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      FILE_UPLOAD_DATABASE_DATABASE: file_upload_db
+      FILE_UPLOAD_REDIS_HOST: redis
+      FILE_UPLOAD_REDIS_PORT: "6379"
+      FILE_UPLOAD_STORAGE_PROVIDER: s3
+      FILE_UPLOAD_STORAGE_BUCKET: ${FILE_UPLOAD_BUCKET:-file-uploads}
+      FILE_UPLOAD_STORAGE_REGION: ${AWS_REGION:-us-east-1}
+      FILE_UPLOAD_STORAGE_ENDPOINT: ${S3_ENDPOINT:-}
+      FILE_UPLOAD_STORAGE_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      FILE_UPLOAD_STORAGE_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      FILE_UPLOAD_AUTH_JWKS_URL: ${JWKS_URL:-http://token-service:8081/.well-known/jwks.json}
+      FILE_UPLOAD_AUTH_ISSUER: ${JWT_ISSUER:-auth-platform}
+      FILE_UPLOAD_SCANNER_ENABLED: "false"
+      FILE_UPLOAD_SCANNER_ADDRESS: clamav:3310
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - platform-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+    env_file:
+      - .env
+
   # ============================================
   # Shared Infrastructure - Data Layer
   # ============================================

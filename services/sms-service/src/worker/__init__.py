@@ -1,0 +1,1 @@
+"""Worker - async message processing."""

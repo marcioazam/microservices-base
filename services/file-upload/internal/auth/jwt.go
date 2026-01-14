@@ -12,10 +12,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/auth-platform/file-upload/internal/config"
 	"github.com/auth-platform/file-upload/internal/domain"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// Config holds auth handler configuration
+type Config struct {
+	JWKSURL  string
+	Issuer   string
+	Audience string
+	CacheTTL time.Duration
+}
 
 // UserContext contains authenticated user information
 type UserContext struct {
@@ -38,17 +45,17 @@ type Handler struct {
 }
 
 // NewHandler creates a new auth handler
-func NewHandler(cfg config.AuthConfig) *Handler {
+func NewHandler(cfg Config) (*Handler, error) {
 	return &Handler{
-		jwksURL:       cfg.JWKSUrl,
+		jwksURL:       cfg.JWKSURL,
 		issuer:        cfg.Issuer,
 		audience:      cfg.Audience,
-		cacheDuration: cfg.CacheDuration,
+		cacheDuration: cfg.CacheTTL,
 		keys:          make(map[string]*rsa.PublicKey),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-	}
+	}, nil
 }
 
 // ValidateToken validates JWT and returns user context
