@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -85,10 +85,86 @@ class Settings(BaseSettings):
     retry_max_attempts: int = 5
     retry_max_delay: float = 60.0  # seconds
 
-    # JWT
-    jwt_secret_key: str = "change-me-in-production"
+    # JWT - SECURITY: Secret must be set via JWT_SECRET_KEY environment variable
+    jwt_secret_key: str = Field(
+        ...,  # Required field, no default
+        min_length=32,
+        description="JWT secret key for token signing (REQUIRED - min 32 chars)",
+    )
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "auth-service"
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def validate_jwt_secret(cls, v: str, info) -> str:
+        """
+        Validate JWT secret for production security.
+
+        Security checks:
+        1. Block obvious insecure placeholder values
+        2. Enforce minimum length in production (32 characters)
+        3. Ensure high entropy in production
+
+        Args:
+            v: JWT secret key value
+            info: Validation context with other field values
+
+        Returns:
+            Validated JWT secret key
+
+        Raises:
+            ValueError: If secret is insecure or too short
+        """
+        # Get environment from context (may not be set yet)
+        environment = info.data.get("environment", "development")
+
+        # Block obvious insecure placeholder values
+        insecure_patterns = [
+            "change-me",
+            "changeme",
+            "secret",
+            "password",
+            "test",
+            "example",
+            "demo",
+            "default",
+        ]
+
+        v_lower = v.lower()
+        for pattern in insecure_patterns:
+            if pattern in v_lower:
+                raise ValueError(
+                    f"JWT secret contains insecure placeholder value '{pattern}'. "
+                    f"Set JWT_SECRET_KEY environment variable with a secure random value."
+                )
+
+        # Enforce minimum length
+        if len(v) < 32:
+            raise ValueError(
+                f"JWT secret must be at least 32 characters. "
+                f"Current length: {len(v)}. "
+                f"Generate a secure secret: python -c 'import secrets; print(secrets.token_urlsafe(48))'"
+            )
+
+        # Additional checks for production
+        if environment == "production":
+            # Check for sufficient entropy (basic check)
+            unique_chars = len(set(v))
+            if unique_chars < 16:
+                raise ValueError(
+                    f"JWT secret has insufficient entropy for production. "
+                    f"Unique characters: {unique_chars} (minimum: 16). "
+                    f"Use a cryptographically secure random generator."
+                )
+
+            # Check if it's too simple (e.g., repeated characters)
+            if len(v) > 0 and v.count(v[0]) > len(v) * 0.3:
+                raise ValueError(
+                    f"JWT secret appears to have repeated patterns. "
+                    f"Use a cryptographically secure random generator."
+                )
+
+        return v
 
     # OpenTelemetry
     otel_enabled: bool = True
