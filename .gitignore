@@ -127,3 +127,4 @@ erl_crash.dump
 **/temp/
 **/.tmp/
 **/*.tmp
+tmpclaude-*

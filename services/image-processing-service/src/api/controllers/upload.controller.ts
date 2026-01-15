@@ -162,13 +162,26 @@ export class UploadController {
     try {
       // SSRF Protection: Validate URL before making request
       // Blocks private IPs, cloud metadata endpoints, redirects, and non-HTTP protocols
+      // Returns ValidatedUrl with pinned IP addresses to prevent DNS rebinding (TOCTOU)
       const validatedUrl = await UrlValidator.validate(url);
 
-      // Create safe fetch options with timeout and redirect protection
-      const fetchOptions = UrlValidator.createSafeFetchOptions(10000);
+      // Build URL with pinned IP to prevent DNS rebinding attacks
+      const pinnedRequest = UrlValidator.buildPinnedUrl(validatedUrl);
 
-      // Make request to validated URL
-      const response = await fetch(validatedUrl.toString(), fetchOptions);
+      // Create safe fetch options with timeout and redirect protection
+      const fetchOptions = UrlValidator.createSafeFetchOptions(10000, validatedUrl);
+
+      // Merge pinned IP headers with fetch options
+      const mergedOptions = {
+        ...fetchOptions,
+        headers: {
+          ...fetchOptions.headers,
+          ...pinnedRequest.headers,
+        },
+      };
+
+      // Make request to validated IP-pinned URL
+      const response = await fetch(pinnedRequest.url, mergedOptions);
 
       // Validate response to prevent redirect-based SSRF
       UrlValidator.validateResponse(response);

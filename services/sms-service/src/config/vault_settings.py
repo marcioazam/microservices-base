@@ -7,6 +7,7 @@ Secrets can be loaded from Vault while other configuration comes from environmen
 import logging
 import os
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 from src.config.settings import Settings, get_settings
 from src.shared.vault_client import VaultClient, get_vault_client
@@ -94,26 +95,56 @@ class VaultSettings:
         """
         Update database URL with password from Vault.
 
+        Uses urllib.parse for robust URL manipulation that handles edge cases like
+        IPv6 addresses, special characters, and various URL formats.
+
         Args:
             password: Database password from Vault
         """
-        current_url = str(self.base_settings.database_url)
+        try:
+            current_url = str(self.base_settings.database_url)
 
-        # Parse and reconstruct URL with new password
-        # Format: postgresql+asyncpg://user:password@host:port/database
-        if "@" in current_url:
-            # Extract parts
-            protocol_user = current_url.split("@")[0]
-            host_db = current_url.split("@")[1]
+            # Parse URL using urllib.parse for robustness
+            parsed = urlparse(current_url)
 
-            # Replace password
-            if ":" in protocol_user:
-                protocol = protocol_user.split("//")[0] + "//"
-                user = protocol_user.split("//")[1].split(":")[0]
-                new_url = f"{protocol}{user}:{password}@{host_db}"
+            if not parsed.username:
+                logger.warning(
+                    "Database URL has no username, cannot update password",
+                    extra={"current_url_scheme": parsed.scheme},
+                )
+                return
 
-                self.base_settings.database_url = new_url
-                logger.debug("Updated database URL with Vault password")
+            # Reconstruct netloc with new password
+            # Format: user:password@host:port (handles IPv6 and standard hosts)
+            if parsed.port:
+                new_netloc = f"{parsed.username}:{password}@{parsed.hostname}:{parsed.port}"
+            else:
+                new_netloc = f"{parsed.username}:{password}@{parsed.hostname}"
+
+            # Reconstruct URL with new netloc
+            new_url = urlunparse(
+                (
+                    parsed.scheme,
+                    new_netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
+            )
+
+            self.base_settings.database_url = new_url
+            logger.debug("Updated database URL with Vault password")
+
+        except Exception as e:
+            logger.error(
+                "Failed to update database URL with Vault password",
+                extra={
+                    "error": str(e),
+                    "vault_path": self.vault_path,
+                },
+            )
+            # Don't raise - fall back to original URL to avoid breaking the application
 
     def get_settings(self) -> Settings:
         """

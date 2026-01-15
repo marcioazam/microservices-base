@@ -5,6 +5,24 @@ import { promisify } from 'util';
 const dnsLookup = promisify(dns.lookup);
 
 /**
+ * DNS cache entry with TTL for TOCTOU attack prevention
+ */
+interface DnsCacheEntry {
+  addresses: string[];
+  timestamp: number;
+  ttl: number; // milliseconds
+}
+
+/**
+ * Validated URL result with pinned IP addresses
+ */
+export interface ValidatedUrl {
+  url: URL;
+  validatedIps: string[];
+  primaryIp: string;
+}
+
+/**
  * SSRF Protection - URL Validator
  *
  * Protects against Server-Side Request Forgery attacks by:
@@ -14,8 +32,13 @@ const dnsLookup = promisify(dns.lookup);
  * 4. Blocking localhost and link-local addresses
  * 5. Validating resolved DNS addresses to prevent DNS rebinding
  * 6. Preventing redirect-based SSRF bypasses
+ * 7. DNS caching with TTL to prevent TOCTOU attacks
+ * 8. IP pinning for validated hostnames
  */
 export class UrlValidator {
+  // DNS cache with TTL (default 5 minutes)
+  private static dnsCache = new Map<string, DnsCacheEntry>();
+  private static readonly DEFAULT_DNS_TTL = 5 * 60 * 1000; // 5 minutes
   private static readonly PRIVATE_IP_PATTERNS = [
     // IPv4 Loopback
     /^127\./,
@@ -70,10 +93,11 @@ export class UrlValidator {
 
   /**
    * Validates a URL for SSRF safety before making HTTP requests
+   * Returns validated URL with pinned IP addresses to prevent TOCTOU attacks
    * @param urlString - The URL to validate
    * @throws AppError if URL is unsafe
    */
-  static async validate(urlString: string): Promise<URL> {
+  static async validate(urlString: string): Promise<ValidatedUrl> {
     // Parse URL
     let parsedUrl: URL;
     try {
@@ -105,15 +129,22 @@ export class UrlValidator {
     // Check if hostname is an IP address
     const isIpAddress = this.isIpAddress(parsedUrl.hostname);
 
+    let validatedIps: string[];
+
     if (isIpAddress) {
       // Direct IP address - validate it's not private
       this.validateIpAddress(parsedUrl.hostname);
+      validatedIps = [parsedUrl.hostname];
     } else {
-      // Domain name - resolve DNS and validate IPs
-      await this.validateDnsResolution(parsedUrl.hostname);
+      // Domain name - resolve DNS and validate IPs (with caching)
+      validatedIps = await this.validateDnsResolution(parsedUrl.hostname);
     }
 
-    return parsedUrl;
+    return {
+      url: parsedUrl,
+      validatedIps,
+      primaryIp: validatedIps[0],
+    };
   }
 
   /**
@@ -174,9 +205,16 @@ export class UrlValidator {
 
   /**
    * Resolves DNS and validates all returned IPs are safe
-   * Prevents DNS rebinding attacks
+   * Prevents DNS rebinding attacks with caching
+   * @returns Array of validated IP addresses
    */
-  private static async validateDnsResolution(hostname: string): Promise<void> {
+  private static async validateDnsResolution(hostname: string): Promise<string[]> {
+    // Check cache first
+    const cached = this.getDnsCacheEntry(hostname);
+    if (cached) {
+      return cached.addresses;
+    }
+
     try {
       // Resolve both IPv4 and IPv6
       const addresses: string[] = [];
@@ -206,6 +244,11 @@ export class UrlValidator {
       for (const address of addresses) {
         this.validateIpAddress(address);
       }
+
+      // Cache validated addresses
+      this.setDnsCacheEntry(hostname, addresses, this.DEFAULT_DNS_TTL);
+
+      return addresses;
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
@@ -215,18 +258,105 @@ export class UrlValidator {
   }
 
   /**
-   * Creates a safe fetch configuration with SSRF protections
+   * Get DNS cache entry if valid
    */
-  static createSafeFetchOptions(timeoutMs: number = 10000): RequestInit {
+  private static getDnsCacheEntry(hostname: string): DnsCacheEntry | null {
+    const entry = this.dnsCache.get(hostname);
+
+    if (!entry) {
+      return null;
+    }
+
+    // Check if expired
+    const now = Date.now();
+    if (now - entry.timestamp > entry.ttl) {
+      // Expired - remove from cache
+      this.dnsCache.delete(hostname);
+      return null;
+    }
+
+    return entry;
+  }
+
+  /**
+   * Set DNS cache entry
+   */
+  private static setDnsCacheEntry(hostname: string, addresses: string[], ttl: number): void {
+    this.dnsCache.set(hostname, {
+      addresses,
+      timestamp: Date.now(),
+      ttl,
+    });
+  }
+
+  /**
+   * Clear DNS cache (useful for testing or manual cache invalidation)
+   */
+  static clearDnsCache(): void {
+    this.dnsCache.clear();
+  }
+
+  /**
+   * Clear expired DNS cache entries
+   */
+  static cleanupDnsCache(): void {
+    const now = Date.now();
+    for (const [hostname, entry] of this.dnsCache.entries()) {
+      if (now - entry.timestamp > entry.ttl) {
+        this.dnsCache.delete(hostname);
+      }
+    }
+  }
+
+  /**
+   * Builds a URL with pinned IP to prevent DNS rebinding attacks
+   * @param validatedUrl - The validated URL result from validate()
+   * @returns URL string with IP and original hostname as Host header
+   */
+  static buildPinnedUrl(validatedUrl: ValidatedUrl): { url: string; headers: Record<string, string> } {
+    const { url, primaryIp } = validatedUrl;
+
+    // Build URL with IP instead of hostname
+    const protocol = url.protocol;
+    const port = url.port ? `:${url.port}` : '';
+    const pathname = url.pathname;
+    const search = url.search;
+    const hash = url.hash;
+
+    // Wrap IPv6 addresses in brackets
+    const ipForUrl = primaryIp.includes(':') ? `[${primaryIp}]` : primaryIp;
+
+    const pinnedUrl = `${protocol}//${ipForUrl}${port}${pathname}${search}${hash}`;
+
+    return {
+      url: pinnedUrl,
+      headers: {
+        Host: url.hostname, // Original hostname as Host header
+      },
+    };
+  }
+
+  /**
+   * Creates a safe fetch configuration with SSRF protections
+   * @param validatedUrl - Optional validated URL for IP pinning
+   */
+  static createSafeFetchOptions(timeoutMs: number = 10000, validatedUrl?: ValidatedUrl): RequestInit {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    const headers: Record<string, string> = {
+      'User-Agent': 'ImageProcessingService/1.0 (SSRF-Protected)',
+    };
+
+    // Add Host header for IP pinning if validatedUrl provided
+    if (validatedUrl) {
+      headers['Host'] = validatedUrl.url.hostname;
+    }
 
     return {
       signal: controller.signal,
       redirect: 'manual', // Prevent automatic redirects (SSRF bypass)
-      headers: {
-        'User-Agent': 'ImageProcessingService/1.0 (SSRF-Protected)',
-      },
+      headers,
       // Prevent following redirects
       follow: 0,
     };
