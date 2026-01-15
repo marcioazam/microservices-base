@@ -1,0 +1,67 @@
+version: '3.8'
+
+# HashiCorp Vault - Secrets Management
+# This docker-compose sets up Vault in development and production modes
+
+services:
+  # Vault Server
+  vault:
+    image: hashicorp/vault:1.15.0
+    container_name: vault-server
+    restart: unless-stopped
+    ports:
+      - "8200:8200"  # Vault API/UI
+    environment:
+      # Development mode configuration (auto-unseals, not for production!)
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-root}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: "http://0.0.0.0:8200"
+
+      # Logging
+      VAULT_LOG_LEVEL: ${VAULT_LOG_LEVEL:-info}
+    cap_add:
+      - IPC_LOCK  # Required for mlock to prevent swapping secrets to disk
+    volumes:
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+      - vault-config:/vault/config
+      - ./vault/config:/vault/config:ro
+      - ./vault/policies:/vault/policies:ro
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    command: server -dev -dev-root-token-id=${VAULT_DEV_ROOT_TOKEN:-root}
+
+  # Vault UI (included in the image, accessible via browser)
+  # Access: http://localhost:8200/ui
+  # Token: root (or your configured VAULT_DEV_ROOT_TOKEN)
+
+volumes:
+  vault-data:
+    driver: local
+  vault-logs:
+    driver: local
+  vault-config:
+    driver: local
+
+networks:
+  microservices-network:
+    name: microservices-network
+    external: true
+
+# Production Configuration Notes:
+# ================================
+# For production, DO NOT use -dev mode. Instead:
+# 1. Use a proper storage backend (Consul, etcd, PostgreSQL)
+# 2. Configure TLS certificates
+# 3. Set up proper unsealing (auto-unseal with cloud KMS)
+# 4. Enable audit logging
+# 5. Configure HA (High Availability)
+# 6. Use proper authentication methods (LDAP, OIDC, AWS IAM, etc.)
+#
+# See production config example: ./vault/config/vault.hcl

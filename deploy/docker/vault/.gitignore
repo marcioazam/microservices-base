@@ -1,0 +1,38 @@
+# Vault Secrets - NEVER COMMIT THESE FILES!
+
+# Environment files with tokens
+.env.vault
+.env.vault.*
+*.env.vault
+
+# Vault data
+data/
+logs/
+
+# TLS certificates (should be managed separately)
+tls/
+*.crt
+*.key
+*.pem
+
+# Backup files
+*.backup
+*.bak
+
+# Generated tokens
+tokens/
+*.token
+
+# Terraform state (if using Terraform for Vault)
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/
+
+# Vault audit logs
+audit.log
+*.log
+
+# Test artifacts
+test-secrets/
+tmp/
+*.tmp

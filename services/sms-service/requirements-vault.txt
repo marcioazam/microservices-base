@@ -1,0 +1,9 @@
+# HashiCorp Vault Client Dependencies
+# Install with: pip install -r requirements-vault.txt
+
+# Vault client
+hvac==2.1.0            # HashiCorp Vault Python client
+
+# Dependencies (usually installed by hvac)
+requests>=2.31.0       # HTTP client for Vault API
+urllib3>=2.1.0         # HTTP connection pooling
