@@ -1,7 +1,8 @@
 """HashiCorp Vault Client for Secret Management.
 
 This module provides a secure client for retrieving secrets from HashiCorp Vault.
-Supports caching, automatic token renewal, and error handling.
+Supports caching, automatic token renewal, rate limiting, and error handling.
+Includes Prometheus metrics for observability.
 """
 
 import logging
@@ -13,6 +14,13 @@ from typing import Any, Dict, Optional
 
 import hvac
 from hvac.exceptions import InvalidPath, VaultError
+
+# Import metrics (optional - gracefully handles missing prometheus_client)
+try:
+    from src.observability.vault_metrics import VaultMetrics
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +174,18 @@ class VaultClient:
             },
         )
 
+        # Initialize metrics
+        if METRICS_AVAILABLE:
+            VaultMetrics.initialize()
+            VaultMetrics.set_client_info(
+                vault_addr=self.vault_addr,
+                namespace=self.vault_namespace,
+                auto_renew=self.auto_renew,
+                rate_limit=rate_limit,
+            )
+            if self._initial_ttl:
+                VaultMetrics.record_token_ttl(self._initial_ttl)
+
         # Start automatic token renewal if enabled
         if self.auto_renew:
             self._start_token_renewal()
@@ -181,6 +201,7 @@ class VaultClient:
             TimeoutError: If rate limit timeout expires
         """
         if self._rate_limiter:
+            start_wait = time.time()
             try:
                 self._rate_limiter.consume(tokens=1, blocking=True, timeout=10.0)
             except TimeoutError as e:
@@ -192,6 +213,10 @@ class VaultClient:
                     },
                 )
                 raise TimeoutError(f"Rate limit exceeded for {operation}: {e}") from e
+            finally:
+                wait_time = time.time() - start_wait
+                if wait_time > 0.001 and METRICS_AVAILABLE:  # Only record if waited
+                    VaultMetrics.record_rate_limit_wait(wait_time)
 
     def get_secret(self, path: str, key: Optional[str] = None) -> Any:
         """
@@ -217,6 +242,7 @@ class VaultClient:
         # Apply rate limiting
         self._apply_rate_limit(operation="get_secret")
 
+        start_time = time.time()
         try:
             # Read secret from KV v2
             secret_response = self.client.secrets.kv.v2.read_secret_version(
@@ -233,9 +259,16 @@ class VaultClient:
                         f"Key '{key}' not found in secret path '{path}'. "
                         f"Available keys: {list(secret_data.keys())}"
                     )
-                return secret_data[key]
+                result = secret_data[key]
+            else:
+                result = secret_data
 
-            return secret_data
+            # Record success metrics
+            if METRICS_AVAILABLE:
+                VaultMetrics.record_success("get_secret", time.time() - start_time)
+                VaultMetrics.record_cache_miss()  # Vault read = cache miss
+
+            return result
 
         except InvalidPath:
             logger.error(
@@ -247,6 +280,8 @@ class VaultClient:
                     "vault_addr": self.vault_addr,
                 },
             )
+            if METRICS_AVAILABLE:
+                VaultMetrics.record_error("get_secret", "InvalidPath")
             raise InvalidPath(f"Secret path '{path}' not found in Vault") from None
         except KeyError as e:
             logger.error(
@@ -257,6 +292,8 @@ class VaultClient:
                     "vault_addr": self.vault_addr,
                 },
             )
+            if METRICS_AVAILABLE:
+                VaultMetrics.record_error("get_secret", "KeyError")
             raise
         except VaultError as e:
             logger.error(
@@ -269,6 +306,8 @@ class VaultClient:
                     "error": str(e),
                 },
             )
+            if METRICS_AVAILABLE:
+                VaultMetrics.record_error("get_secret", "VaultError")
             raise VaultError(f"Failed to retrieve secret from '{path}': {e}") from e
 
     def get_secrets_batch(self, path: str, keys: list[str]) -> Dict[str, Any]:
@@ -384,12 +423,24 @@ class VaultClient:
         # Apply rate limiting
         self._apply_rate_limit(operation="renew_token")
 
+        start_time = time.time()
         try:
             self.client.auth.token.renew_self()
             logger.info("Vault token renewed successfully")
 
+            # Record success metrics
+            if METRICS_AVAILABLE:
+                VaultMetrics.record_success("renew_token", time.time() - start_time)
+                VaultMetrics.record_token_renewal(success=True)
+                # Update token TTL
+                new_ttl = self.get_token_ttl()
+                VaultMetrics.record_token_ttl(new_ttl)
+
         except VaultError as e:
             logger.error(f"Failed to renew token: {e}")
+            if METRICS_AVAILABLE:
+                VaultMetrics.record_error("renew_token", "VaultError")
+                VaultMetrics.record_token_renewal(success=False)
             raise
 
     def is_authenticated(self) -> bool:
